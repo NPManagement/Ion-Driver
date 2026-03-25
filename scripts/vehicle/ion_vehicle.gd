@@ -83,6 +83,8 @@ var _ghost_nodes: Array       = []     # [{node, mat, t, max_t, vel, base_alpha,
 var on_track: bool            = false
 var track_normal: Vector3     = Vector3.UP
 var current_roll: float       = 0.0
+# Per-pad smoothed normals — irons out the seam-line jolt when crossing road quad edges
+var _hover_smooth_n: Array[Vector3] = [Vector3.UP, Vector3.UP, Vector3.UP, Vector3.UP]
 
 var is_player: bool           = false
 var has_finished: bool        = false
@@ -197,7 +199,7 @@ const HOVER_OFFSETS: Array = [
 	Vector3( 1.65, 0.0, -2.5),
 	Vector3(-1.65, 0.0, -2.5),
 ]
-const MAX_RAY_LENGTH: float = 12.0  # Long ray — covers 18m elevation range of new track
+const MAX_RAY_LENGTH: float = 22.0  # Extended — covers 400m elevation test track banking geometry
 const KMH_FACTOR: float     = 3.6
 
 # ─── Setup ─────────────────────────────────────────────────────────────────────
@@ -886,7 +888,10 @@ func _build_camera() -> void:
 	_spring_arm = SpringArm3D.new()
 	_spring_arm.name              = "CameraArm"
 	_spring_arm.spring_length     = 7.0
-	_spring_arm.collision_mask    = 1
+	# Test track has a road trimesh on layer 1 — spring arm colliding with the
+	# banked surface behind the vehicle causes violent camera compression. On the
+	# open test oval there are no walls to clip through, so disable collision there.
+	_spring_arm.collision_mask    = 0 if GameManager.selected_track != 0 else 1
 	_spring_arm.rotation_degrees.x = -16.0
 	_spring_arm.position          = Vector3(0, 1.2, 0)
 	add_child(_spring_arm)
@@ -895,7 +900,7 @@ func _build_camera() -> void:
 	_camera.name    = "PlayerCamera"
 	_camera.fov     = 95.0
 	_camera.near    = 0.15
-	_camera.far     = 8000.0
+	_camera.far     = 60000.0 if GameManager.selected_track != 0 else 8000.0
 	_camera.current = true
 	_spring_arm.add_child(_camera)
 
@@ -1058,8 +1063,9 @@ func _physics_process(delta: float) -> void:
 		_coast_to_stop()
 		return
 
-	# Safety net: track is at y=0, trigger well below
-	if global_position.y < -15.0:
+	# Safety net: trigger well below ground (test track climbs to 420m so only
+	# fire if we've genuinely fallen through the world, not off a banked section)
+	if global_position.y < -80.0:
 		_do_respawn()
 		return
 	
@@ -1082,8 +1088,11 @@ func _physics_process(delta: float) -> void:
 
 # ─── Hover Physics ─────────────────────────────────────────────────────────────
 # Spring-damper hover using synchronous PhysicsDirectSpaceState3D ray queries.
-# Four corner rays cast downward; each applies an upward spring + damping force.
-# Gravity is explicitly cancelled so the ship feels weightless.
+# Magnet hover — locks car at exactly hover_height above the road surface.
+# Uses a velocity impulse instead of a spring: no oscillation, no resonance,
+# no seam bumps. On each physics frame the car's velocity component along the
+# road normal is set to exactly what's needed to reach hover_height, then left
+# alone. When rays miss (hill crest, genuine jump) the car goes airborne freely.
 func _apply_hover(_delta: float) -> void:
 	var space := get_world_3d().direct_space_state
 	if space == null:
@@ -1093,10 +1102,11 @@ func _apply_hover(_delta: float) -> void:
 	var hit_count  := 0
 	var normal_sum := Vector3.ZERO
 	var dist_sum   := 0.0
+	var horiz_spd  := Vector2(linear_velocity.x, linear_velocity.z).length()
 
 	for i in HOVER_OFFSETS.size():
-		var off   := HOVER_OFFSETS[i] as Vector3
-		var start := to_global(off)
+		var off    := HOVER_OFFSETS[i] as Vector3
+		var start  := to_global(off)
 		var finish := start + Vector3(0.0, -MAX_RAY_LENGTH, 0.0)
 
 		var p := PhysicsRayQueryParameters3D.new()
@@ -1108,28 +1118,33 @@ func _apply_hover(_delta: float) -> void:
 		if r.is_empty():
 			continue
 
-		var hit_pt := r["position"] as Vector3
-		var hit_n  := r["normal"]   as Vector3
-		var dist   := start.distance_to(hit_pt)
-		var err    := hover_height - dist
-		var vel_dot := linear_velocity.dot(-hit_n)
+		var hit_n := r["normal"] as Vector3
 
-		# Full spring-damper: pushes up when too close, pulls back when above target.
-		# This creates stable hovering at exactly hover_height above the surface.
-		var spring := hover_force * err
-		var damper := hover_damping * vel_dot
-		apply_force(hit_n * (spring + damper), start - global_position)
+		# Smooth normal per-pad to remove seam-line jolts (safe: only affects direction)
+		var n_smooth := lerpf(0.6, 0.06, clampf(horiz_spd / 400.0, 0.0, 1.0))
+		_hover_smooth_n[i] = _hover_smooth_n[i].lerp(hit_n, n_smooth).normalized()
 
-		normal_sum += hit_n
-		dist_sum   += dist
+		normal_sum += _hover_smooth_n[i]
+		dist_sum   += start.distance_to(r["position"] as Vector3)
 		hit_count  += 1
 
 	if hit_count > 0:
 		on_track        = true
 		track_normal    = (normal_sum / hit_count).normalized()
 		_hover_avg_dist = dist_sum / hit_count
-		# Cancel gravity — ship feels weightless when hovering
+
+		# Cancel gravity so ship feels weightless while hovering
 		apply_central_force(Vector3.UP * gravity_scale * 9.8 * mass)
+
+		# ── Magnet lock ───────────────────────────────────────────────────────
+		# Compute the velocity the car needs along the road normal to sit at
+		# hover_height. Directly impulse to that velocity — no spring, no bounce.
+		#   err > 0 → car is too low  → push up   (large positive target_n)
+		#   err < 0 → car is too high → let gravity pull (small negative target_n)
+		var err      := hover_height - _hover_avg_dist
+		var vel_n    := linear_velocity.dot(track_normal)
+		var target_n := clampf(err * 40.0, -20.0, 50.0)
+		apply_central_impulse(track_normal * (target_n - vel_n) * mass)
 	else:
 		on_track        = false
 		track_normal    = Vector3.UP
@@ -1156,7 +1171,9 @@ func _update_respawn(delta: float) -> void:
 		# Save a respawn point every 1.2s of good on-track driving, OR immediately
 		# if we've never saved one yet (e.g. start of race).
 		_respawn_save_t += delta
-		if _respawn_save_t >= 0.4 or not _has_respawn_pos:
+		# Save more frequently on high-speed test track so respawn always lands on road
+		var save_interval := 0.15 if GameManager.selected_track != 0 else 0.4
+		if _respawn_save_t >= save_interval or not _has_respawn_pos:
 			_respawn_save_t  = 0.0
 			_has_respawn_pos = true
 			_respawn_pos     = global_position
@@ -1169,7 +1186,9 @@ func _update_respawn(delta: float) -> void:
 			)
 	else:
 		_fall_timer += delta
-		if _fall_timer >= 1.8:
+		# Test track has large elevation changes — give more time to recover before respawning
+		var fall_threshold := 4.0 if GameManager.selected_track != 0 else 1.8
+		if _fall_timer >= fall_threshold:
 			_do_respawn()
 
 func _do_respawn() -> void:
@@ -1554,7 +1573,8 @@ func _update_camera(delta: float) -> void:
 	var target_y := cs.height_base - spd_ratio * 0.3
 	_spring_arm.position.y = lerpf(_spring_arm.position.y, target_y, delta * 2.5)
 
-	var air_extra := clampf(_airtime_t / 0.8, 0.0, 1.0) * 12.0
+	# Only tilt camera down after genuine airtime (≥0.5s), not brief physics bounces
+	var air_extra := clampf((_airtime_t - 0.5) / 0.8, 0.0, 1.0) * 12.0
 	var target_pitch := cs.pitch_base - spd_ratio * cs.pitch_speed_scale + air_extra
 	_spring_arm.rotation_degrees.x = lerpf(_spring_arm.rotation_degrees.x, target_pitch, delta * 3.0)
 

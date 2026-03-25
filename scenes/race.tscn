@@ -8,11 +8,13 @@
 [ext_resource type="Environment" path="res://resources/default_environment.tres" id="5_env"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_race"]
-sky_top_color    = Color(0.005, 0.005, 0.025, 1)
-sky_horizon_color= Color(0.025, 0.025, 0.08,  1)
-sky_curve        = 0.08
-ground_bottom_color  = Color(0.002, 0.002, 0.005, 1)
-ground_horizon_color = Color(0.015, 0.015, 0.04,  1)
+sky_top_color         = Color(0.07, 0.18, 0.60, 1)
+sky_horizon_color     = Color(0.55, 0.74, 0.95, 1)
+sky_curve             = 0.09
+ground_bottom_color   = Color(0.08, 0.10, 0.06, 1)
+ground_horizon_color  = Color(0.28, 0.40, 0.18, 1)
+sun_angle_max         = 30.0
+sun_curve             = 0.15
 
 [sub_resource type="Sky" id="Sky_race"]
 sky_material = SubResource("ProceduralSkyMaterial_race")
@@ -21,45 +23,40 @@ sky_material = SubResource("ProceduralSkyMaterial_race")
 background_mode         = 2
 sky                     = SubResource("Sky_race")
 ambient_light_source    = 3
-ambient_light_color     = Color(0.05, 0.06, 0.14, 1)
-ambient_light_energy    = 0.12
+ambient_light_color     = Color(0.72, 0.82, 0.95, 1)
+ambient_light_energy    = 0.65
 reflected_light_source  = 2
 tonemap_mode            = 2
-tonemap_exposure        = 1.3
-tonemap_white           = 6.0
+tonemap_exposure        = 1.1
+tonemap_white           = 4.0
 ssr_enabled             = true
-ssr_max_steps           = 128
+ssr_max_steps           = 64
 ssr_fade_in             = 0.15
 ssr_fade_out            = 2.0
 ssr_depth_tolerance     = 0.2
 ssao_enabled            = true
 ssao_radius             = 2.0
-ssao_intensity          = 3.0
+ssao_intensity          = 1.5
 ssil_enabled            = true
 ssil_radius             = 6.0
-ssil_intensity          = 1.2
+ssil_intensity          = 0.8
 glow_enabled            = true
 glow_normalized         = true
-glow_intensity          = 1.1
-glow_strength           = 1.5
-glow_bloom              = 0.18
+glow_intensity          = 0.7
+glow_strength           = 1.0
+glow_bloom              = 0.08
 glow_blend_mode         = 2
-glow_hdr_threshold      = 0.8
+glow_hdr_threshold      = 1.2
 glow_levels/1           = true
 glow_levels/2           = true
 glow_levels/3           = true
-glow_levels/4           = true
-glow_levels/5           = true
-glow_levels/6           = true
-volumetric_fog_enabled  = true
-volumetric_fog_density  = 0.01
-volumetric_fog_albedo   = Color(0.02, 0.025, 0.06, 1)
-volumetric_fog_emission = Color(0.01, 0.01, 0.04, 1)
-volumetric_fog_emission_energy = 0.3
+glow_levels/4           = false
+glow_levels/5           = false
+glow_levels/6           = false
 adjustment_enabled      = true
-adjustment_brightness   = 1.0
-adjustment_contrast     = 1.18
-adjustment_saturation   = 1.3
+adjustment_brightness   = 1.05
+adjustment_contrast     = 1.10
+adjustment_saturation   = 1.15
 
 [node name="Race" type="Node3D"]
 script = ExtResource("0_rs")
@@ -68,17 +65,20 @@ script = ExtResource("0_rs")
 environment = SubResource("Environment_race")
 
 [node name="SunLight" type="DirectionalLight3D" parent="."]
-transform       = Transform3D(0.866, -0.354, 0.354, 0, 0.707, 0.707, -0.5, -0.612, 0.612, 0, 60, 0)
-light_color     = Color(0.4, 0.42, 0.6, 1)
-light_energy    = 0.4
+transform       = Transform3D(0.766, -0.469, 0.440, 0, 0.685, 0.729, -0.643, -0.558, 0.524, 0, 500, 0)
+light_color     = Color(1.0, 0.96, 0.82, 1)
+light_energy    = 3.5
 shadow_enabled  = true
 directional_shadow_mode = 2
-directional_shadow_max_distance = 400.0
+directional_shadow_max_distance = 4000.0
+directional_shadow_split_1      = 0.1
+directional_shadow_split_2      = 0.2
+directional_shadow_split_3      = 0.5
 
 [node name="FillLight" type="DirectionalLight3D" parent="."]
 transform       = Transform3D(-0.866, -0.25, -0.433, 0, 0.866, -0.5, 0.5, -0.433, -0.75, 0, 40, 0)
-light_color     = Color(0.15, 0.2, 0.4, 1)
-light_energy    = 0.15
+light_color     = Color(0.55, 0.70, 0.90, 1)
+light_energy    = 0.55
 shadow_enabled  = false
 
 [node name="TrackGenerator" type="Node3D" parent="."]

@@ -12,6 +12,7 @@ var _pole_mat: StandardMaterial3D
 var _dark_curb_mat: StandardMaterial3D
 var _chevron_mat: ShaderMaterial
 var _building_count: int = 0
+var _pylon_accum_dist: float = 0.0  # Distance since last edge pylon (keeps ~500m spacing)
 
 # ─── Chunk-based visibility system ───────────────────────────────────────────
 const CHUNK_SIZE := 10            # Waypoints per chunk
@@ -97,37 +98,54 @@ const CONTROL_POINTS = [
 	Vector3( -2200,  0,   -600),    # 44  north closing — wraps to #0
 ]
 
-# ─── Test Track — compact oval with banked turns + elevation changes ────────
-# Clean simple oval: ~3km lap. Clockwise. Physically banked turns.
-# South straight = flat. East/West turns = banked. North straight = hills.
+# ─── Test Track — High-Speed Banked Oval for 3000+ km/h testing ─────────────
+# Giant oval: ~100km perimeter. Clockwise. Two mega-banked hairpins, two long
+# straights. Straight 1 = flat S/F drag strip (~15km). East Turn = rising
+# banked sweep up to 400m elevation, 30° bank. Straight 2 = hilly cross (~15km).
+# West Turn = mirror of East. No barriers — full open road.
+# At 833 m/s (3000 km/h) one lap ≈ 2 min. Designed for unrestricted testing.
 const TEST_CONTROL_POINTS = [
-	# ══ South Straight (flat, heading east) ══
-	Vector3(    0,   0,     0),     #  0  Start/Finish
-	Vector3(  300,   0,     0),     #  1  mid straight
-	Vector3(  600,   0,     0),     #  2  end straight
+	# ══ S/F Straight — flat, heading East, ~15km ══
+	Vector3(      0,    0,      0),   #  0  Start / Finish line
+	Vector3(   5000,    0,      0),   #  1  mid S1
+	Vector3(  10000,    0,      0),   #  2  S1 three-quarter
+	Vector3(  13500,    0,      0),   #  3  braking zone / turn approach
 
-	# ══ East Banked Turn (right turn, climbing slightly) ══
-	Vector3(  850,   5,   150),     #  3  turn entry
-	Vector3(  950,  10,   400),     #  4  turn apex
-	Vector3(  850,   5,   650),     #  5  turn exit
+	# ══ East Banked Turn — sweeping right (south), climbing to 400m, 30° bank ══
+	Vector3(  16500,  120,   2800),   #  4  turn entry, start climbing
+	Vector3(  19200,  280,   6500),   #  5  mid-entry
+	Vector3(  20800,  420,  11000),   #  6  apex — peak elevation, max bank
+	Vector3(  19500,  260,  15500),   #  7  post-apex, descending
+	Vector3(  16000,   60,  18800),   #  8  turn exit, back to low ground
 
-	# ══ North Straight (roller coaster, heading west) ══
-	Vector3(  550,  35,   800),     #  6  hill 1
-	Vector3(  300,   5,   800),     #  7  valley
-	Vector3(    0,  55,   800),     #  8  big hill
+	# ══ Straight 2 — rolling hills heading West, ~15km ══
+	Vector3(  12000,    0,  21000),   #  9  valley floor
+	Vector3(   8500,  220,  21500),   # 10  hill 1 crest
+	Vector3(   5000,   20,  21000),   # 11  valley
+	Vector3(   1500,  280,  21500),   # 12  hill 2 crest
+	Vector3(  -2500,   15,  21000),   # 13  valley
+	Vector3(  -6500,    0,  21000),   # 14  west approach, flat
 
-	# ══ West Banked Turn (right turn, descending) ══
-	Vector3( -200,  30,   650),     #  9  turn entry
-	Vector3( -300,  15,   400),     # 10  turn apex
-	Vector3( -200,   5,   150),     # 11  turn exit
+	# ══ West Banked Turn — sweeping right (north), mirror of East, 30° bank ══
+	Vector3(  -9500,   60,  18800),   # 15  turn entry
+	Vector3( -13000,  260,  15500),   # 16  mid-entry
+	Vector3( -14500,  420,  11000),   # 17  apex — peak elevation, max bank
+	Vector3( -13200,  280,   6500),   # 18  post-apex, descending
+	Vector3( -10500,  120,   2800),   # 19  turn exit
+
+	# ══ Return to S/F ══
+	Vector3(  -7000,    0,      0),   # 20  closing straight join
+	Vector3(  -3000,    0,      0),   # 21  approaching S/F
 ]
 
 # Bank angles in degrees per control point (positive = banked for right turn)
 const TEST_BANK_ANGLES = [
-	0.0, 0.0, 0.0,      # south straight: flat
-	10.0, 18.0, 10.0,   # east turn: banked
-	0.0, 0.0, 0.0,      # north straight: flat
-	10.0, 18.0, 10.0,   # west turn: banked
+	0.0,  0.0,  0.0,  3.0,           # S1: flat with gentle approach lean
+	12.0, 24.0, 30.0, 24.0, 10.0,   # East turn: full 30° bank at apex
+	0.0,  0.0,  0.0,  0.0,  0.0,    # S2 hills: flat (elevation only)
+	3.0,
+	10.0, 24.0, 30.0, 24.0, 12.0,   # West turn: full 30° bank at apex
+	3.0,  0.0,                        # Return: ease out
 ]
 
 # Banking data per interpolated waypoint (filled during _compute_waypoints)
@@ -136,8 +154,8 @@ var _bank_angles: Array[float] = []
 func _ready() -> void:
 	# Set track-specific dimensions before building anything
 	if GameManager.selected_track != 0:
-		TRACK_WIDTH = 80.0    # Narrower for meaningful banking physics
-		EDGE_OFFSET = 35.0    # Barrier offset scaled to narrower road
+		TRACK_WIDTH = 500.0   # Very wide — high-speed test oval, no walls
+		EDGE_OFFSET = 215.0   # Edge stripe position near the road margin
 
 	_init_shared_materials()
 	_build_plane()
@@ -242,7 +260,44 @@ func _build_plane() -> void:
 
 # ─── Road surface ribbon mesh — follows curves with proper UVs ───────────────
 func _build_road_surface() -> void:
-	var n := waypoints.size()
+	# For the test track, generate a SEPARATE hi-res point set at ~5 m vertex spacing.
+	# This eliminates seam kinks without touching waypoints (used for chunks/logic).
+	var mesh_pts:    Array[Vector3] = []
+	var mesh_banks:  Array[float]   = []
+	var mesh_rights: Array[Vector3] = []
+
+	if GameManager.selected_track != 0:
+		# Compute subdivisions so adjacent verts are ~5 m apart
+		var ctrl = TEST_CONTROL_POINTS
+		var avg_seg := 0.0
+		for i in ctrl.size():
+			avg_seg += (ctrl[i] as Vector3).distance_to(ctrl[(i + 1) % ctrl.size()] as Vector3)
+		avg_seg /= ctrl.size()
+		var hi_sub := maxi(10, ceili(avg_seg / 5.0))
+		print("TrackGenerator: road mesh hi_sub=%d  (~%.0f m spacing)" % [hi_sub, avg_seg / hi_sub])
+
+		mesh_pts   = _catmull_rom_chain(ctrl, hi_sub)
+		mesh_banks = _catmull_rom_chain_1d(TEST_BANK_ANGLES, hi_sub)
+
+		# Compute tangent-based right vectors for the hi-res points
+		var mn := mesh_pts.size()
+		mesh_rights.resize(mn)
+		for i in mn:
+			var prev: Vector3 = mesh_pts[(i - 1 + mn) % mn]
+			var cur:  Vector3 = mesh_pts[i]
+			var nxt:  Vector3 = mesh_pts[(i + 1) % mn]
+			var d_in  := (cur - prev).normalized()
+			var d_out := (nxt - cur).normalized()
+			var avg   := (d_in + d_out).normalized()
+			if avg.length_squared() < 0.001:
+				avg = d_out
+			mesh_rights[i] = avg.cross(Vector3.UP).normalized()
+	else:
+		mesh_pts   = waypoints
+		mesh_banks = _bank_angles
+		mesh_rights = _banked_rights
+
+	var n := mesh_pts.size()
 	if n < 2:
 		return
 
@@ -257,11 +312,11 @@ func _build_road_surface() -> void:
 	var tile_length := TRACK_WIDTH  # 1:1 aspect ratio tiling
 
 	for i in n:
-		var cur: Vector3 = waypoints[i]
-		var right: Vector3 = _banked_rights[i]
+		var cur: Vector3 = mesh_pts[i]
+		var right: Vector3 = mesh_rights[i]
 
 		# Apply physical road banking — tilt the cross-section in banked turns
-		var bank_deg: float = _bank_angles[i] if i < _bank_angles.size() else 0.0
+		var bank_deg: float = mesh_banks[i] if i < mesh_banks.size() else 0.0
 		var bank_h := tan(deg_to_rad(bank_deg)) * half_w
 		# Positive bank: left (outside) higher, right (inside) lower — correct for right turns
 		var left_pt  := cur - right * half_w + Vector3(0, 0.02 + bank_h, 0)
@@ -273,9 +328,9 @@ func _build_road_surface() -> void:
 		norms.append(Vector3.UP)
 
 	# Add the closing verts (duplicate of first pair but with final V)
-	var right0: Vector3 = _banked_rights[0]
-	var cur0: Vector3 = waypoints[0]
-	var bank0: float = _bank_angles[0] if not _bank_angles.is_empty() else 0.0
+	var right0: Vector3 = mesh_rights[0]
+	var cur0: Vector3 = mesh_pts[0]
+	var bank0: float = mesh_banks[0] if not mesh_banks.is_empty() else 0.0
 	var bank_h0 := tan(deg_to_rad(bank0)) * half_w
 	verts.append(cur0 - right0 * half_w + Vector3(0, 0.02 + bank_h0, 0))
 	verts.append(cur0 + right0 * half_w + Vector3(0, 0.02 - bank_h0, 0))
@@ -287,11 +342,11 @@ func _build_road_surface() -> void:
 	var running_v := 0.0
 	for i in n:
 		if i > 0:
-			running_v += waypoints[i].distance_to(waypoints[i - 1]) / tile_length
+			running_v += mesh_pts[i].distance_to(mesh_pts[i - 1]) / tile_length
 		uv_array.append(Vector2(0.0, running_v))
 		uv_array.append(Vector2(1.0, running_v))
 	# Closing verts
-	running_v += waypoints[0].distance_to(waypoints[n - 1]) / tile_length
+	running_v += mesh_pts[0].distance_to(mesh_pts[n - 1]) / tile_length
 	uv_array.append(Vector2(0.0, running_v))
 	uv_array.append(Vector2(1.0, running_v))
 
@@ -377,7 +432,11 @@ func _build_checkpoints() -> void:
 # ─── Waypoint computation (no nodes created) ─────────────────────────────────
 func _compute_waypoints() -> void:
 	var pts = CONTROL_POINTS if GameManager.selected_track == 0 else TEST_CONTROL_POINTS
-	waypoints = _catmull_rom_chain(pts, 10)
+	# Test track: 20 subdivisions halves the quad length (~200 m vs ~400 m),
+	# halving the kink angle at every seam. Pylon accumulator keeps the light
+	# count identical to 10-sub so there is no performance hit.
+	var subdivs := 10 if GameManager.selected_track == 0 else 20
+	waypoints = _catmull_rom_chain(pts, subdivs)
 	var n := waypoints.size()
 	_banked_rights.clear()
 	for i in n:
@@ -394,7 +453,7 @@ func _compute_waypoints() -> void:
 	# Compute per-waypoint bank angles (smooth interpolation from control point data)
 	_bank_angles.clear()
 	if GameManager.selected_track != 0:
-		_bank_angles = _catmull_rom_chain_1d(TEST_BANK_ANGLES, 10)
+		_bank_angles = _catmull_rom_chain_1d(TEST_BANK_ANGLES, subdivs)
 	else:
 		_bank_angles.resize(n)
 		_bank_angles.fill(0.0)
@@ -403,15 +462,118 @@ func _compute_waypoints() -> void:
 func _build_track() -> void:
 	var n := waypoints.size()
 	var warm_amber := Color(1.0, 0.75, 0.3)
-	for i in n:
-		var a := waypoints[i]
-		var b := waypoints[(i + 1) % n]
-		_build_curbs(a, b, warm_amber, i)
 
-	_build_corner_signs(n)
-	_build_turn_arrows(n)
+	if GameManager.selected_track != 0:
+		# Test track — no barrier walls, just wide painted edge strips + markers
+		_pylon_accum_dist = 0.0  # Reset so pylons stay ~500m apart regardless of subdivision count
+		for i in n:
+			var a := waypoints[i]
+			var b := waypoints[(i + 1) % n]
+			_build_test_edge_strips(a, b, warm_amber, i)
+		_build_corner_signs(n)
+		_build_turn_arrows(n)
+		_build_bank_markers(n)
+	else:
+		for i in n:
+			var a := waypoints[i]
+			var b := waypoints[(i + 1) % n]
+			_build_curbs(a, b, warm_amber, i)
+		_build_corner_signs(n)
+		_build_turn_arrows(n)
 
 # Edge lines are now integrated into _build_curbs as neon caps on each barrier block.
+
+# ─── Test track edge — flat painted strips, no walls ─────────────────────────
+func _build_test_edge_strips(a: Vector3, b: Vector3, color: Color, idx: int) -> void:
+	var seg  := b - a
+	var dist := seg.length()
+	if dist < 1.0:
+		return
+	var fwd   := seg.normalized()
+	var right := fwd.cross(Vector3.UP).normalized()
+	var angle := atan2(fwd.x, fwd.z)
+	var chunk := _chunk_for(idx)
+
+	# Two flat neon strips — one each side at EDGE_OFFSET
+	# Alternating white/amber blocks like a runway marking
+	var stripe_len := 20.0
+	var count := ceili(dist / stripe_len)
+	for j in count:
+		var t := (float(j) + 0.5) * stripe_len / dist
+		if t > 1.0:
+			break
+		var pos := a.lerp(b, t)
+		var is_bright := (j + idx) % 4 < 2   # 2 on / 2 off pattern
+		var strip_col := color if is_bright else Color(1.0, 1.0, 1.0)
+		var strip_mat := _neon_mat(strip_col, 60.0 if is_bright else 30.0)
+
+		for side in [-1, 1]:
+			var sp: Vector3 = pos + right * side * (EDGE_OFFSET + 1.0) + Vector3(0, 0.05, 0)
+			_batch_box(sp, Vector3(4.0, 0.12, stripe_len * 0.9), Vector3(0, angle, 0), strip_mat, chunk)
+
+		# Every ~500m place a tall pylon — use accumulated distance so spacing
+		# stays constant regardless of how many subdivisions the mesh uses.
+		_pylon_accum_dist += stripe_len
+		if _pylon_accum_dist >= 500.0:
+			_pylon_accum_dist -= 500.0
+			for side in [-1, 1]:
+				var pylon_pos: Vector3 = pos + right * side * (EDGE_OFFSET + 6.0) + Vector3(0, 0, 0)
+				_batch_box(pylon_pos, Vector3(1.2, 12.0, 1.2), Vector3.ZERO,
+					_neon_mat(color, 80.0), chunk)
+				# Light on top
+				var lamp := OmniLight3D.new()
+				lamp.light_color     = color
+				lamp.light_energy    = 20.0
+				lamp.omni_range      = 120.0
+				lamp.shadow_enabled  = false
+				lamp.distance_fade_enabled = true
+				lamp.distance_fade_begin   = 8000.0
+				lamp.distance_fade_length  = 500.0
+				lamp.position = pylon_pos + Vector3(0, 13.0, 0)
+				chunk.add_child(lamp)
+
+# ─── Banking angle markers — glowing overhead arches at banked sections ───────
+func _build_bank_markers(n: int) -> void:
+	var last_marker := -20
+	for i in range(0, n, 2):
+		var bank: float = _bank_angles[i] if i < _bank_angles.size() else 0.0
+		if absf(bank) < 8.0:
+			continue
+		if i - last_marker < 15:
+			continue
+		last_marker = i
+
+		var cur  := waypoints[i]
+		var nxt  := waypoints[(i + 1) % n]
+		var fwd  := (nxt - cur).normalized()
+		var right: Vector3 = _banked_rights[i]
+		var angle := atan2(fwd.x, fwd.z)
+		var chunk := _chunk_for(i)
+
+		# Build a simple arch spanning the track — two tall posts + top beam
+		var arch_col := Color(0.2, 0.8, 1.0)    # Cyan for banking sections
+		var post_h   := 40.0 + absf(bank) * 1.5  # Taller at steeper banks
+
+		for side in [-1, 1]:
+			var post_pos: Vector3 = cur + right * float(side) * (TRACK_WIDTH * 0.5 - 20.0) + Vector3(0, post_h * 0.5, 0)
+			_batch_box(post_pos, Vector3(3.0, post_h, 3.0), Vector3(0, angle, 0),
+				_neon_mat(arch_col, 50.0), chunk)
+
+		var beam_pos: Vector3 = cur + Vector3(0, post_h + 1.5, 0)
+		_batch_box(beam_pos, Vector3(TRACK_WIDTH - 40.0, 3.0, 3.0), Vector3(0, angle, 0),
+			_neon_mat(arch_col, 60.0), chunk)
+
+		# Glow source at top centre
+		var glow := OmniLight3D.new()
+		glow.light_color   = arch_col
+		glow.light_energy  = 30.0
+		glow.omni_range    = 350.0
+		glow.shadow_enabled = false
+		glow.distance_fade_enabled = true
+		glow.distance_fade_begin   = 8000.0
+		glow.distance_fade_length  = 500.0
+		glow.position = beam_pos
+		chunk.add_child(glow)
 
 func _build_centre_dashes(a: Vector3, b: Vector3, color: Color) -> void:
 	var seg  := b - a
@@ -450,7 +612,7 @@ func _build_corner_signs(n: int) -> void:
 			continue
 		var cross_y := d_in.cross(d_out).y
 		var turn_right := cross_y < 0.0
-		var right := _banked_rights[i]
+		var right: Vector3 = _banked_rights[i]
 		var fwd   := d_out
 		var chunk := _chunk_for(i)
 
