@@ -1476,7 +1476,7 @@ func _check_railing_collision(delta: float) -> void:
 	for origin_local in ray_origins:
 		var origin_world := to_global(origin_local)
 		for side in [-1.0, 1.0]:
-			var ray_dir := veh_right * side
+			var ray_dir: Vector3 = veh_right * float(side)
 			var rp := PhysicsRayQueryParameters3D.new()
 			rp.from           = origin_world
 			rp.to             = origin_world + ray_dir * RAILING_RAY_REACH
