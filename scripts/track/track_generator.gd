@@ -163,6 +163,8 @@ func _ready() -> void:
 	_init_chunks()        # create chunk containers BEFORE spawning content
 	_build_track()        # edge lines, curbs, signs (uses chunks)
 	_build_road_surface() # uses waypoints to lay textured road ribbon
+	if GameManager.selected_track != 0:
+		_build_spiral_ramp()  # corkscrew helix in the center of the oval
 	_build_checkpoints()  # lap gates around the circuit
 	if GameManager.selected_track == 0:
 		_build_city_scenery()
@@ -403,6 +405,196 @@ func _build_road_surface() -> void:
 			col_body.add_child(col_shape)
 		else:
 			push_warning("TrackGenerator: Failed to create road collision trimesh!")
+
+# ─── Spiral corkscrew — helix road in the oval interior for physics testing ──
+# Entry at (2000, 0, 10500) — ~10.5 km north of S/F line, inside the oval.
+# Two counterclockwise revolutions climbing 400 m. Same road width as main track.
+# Separate mesh + collision; does not affect waypoints or lap logic.
+func _build_spiral_ramp() -> void:
+	const SPIRAL_CENTER := Vector3(0.0, 0.0, 10500.0)
+	const SPIRAL_RADIUS := 2000.0    # Large enough to hit at moderate speed
+	const SPIRAL_HEIGHT := 400.0     # Total climb over both revolutions
+	const SPIRAL_REVS   := 2.0       # Full helix turns
+	const SPIRAL_BANK   := 18.0      # Degrees inward (constant radius → constant bank)
+
+	var half_w       := TRACK_WIDTH * 0.5
+	var circumference := SPIRAL_REVS * TAU * SPIRAL_RADIUS
+	var num_pts      := maxi(200, ceili(circumference / 5.0))  # ~5 m vertex spacing
+
+	var pts:    Array[Vector3] = []
+	var rights: Array[Vector3] = []
+
+	var height_per_radian := SPIRAL_HEIGHT / (SPIRAL_REVS * TAU)
+
+	for i in num_pts + 1:
+		var t     := float(i) / float(num_pts)
+		var angle := t * SPIRAL_REVS * TAU
+
+		var px := SPIRAL_CENTER.x + SPIRAL_RADIUS * cos(angle)
+		var py := SPIRAL_CENTER.y + t * SPIRAL_HEIGHT
+		var pz := SPIRAL_CENTER.z + SPIRAL_RADIUS * sin(angle)
+		pts.append(Vector3(px, py, pz))
+
+		# Tangent: analytic derivative of helix position w.r.t. angle
+		var tx := -sin(angle)
+		var ty :=  height_per_radian / SPIRAL_RADIUS   # dy/d(angle) / radius
+		var tz :=  cos(angle)
+		var tangent := Vector3(tx, ty, tz).normalized()
+
+		# Right vector pointing OUTWARD from center (for left-turn banking)
+		rights.append(Vector3.UP.cross(tangent).normalized())
+
+	var n         := pts.size()
+	var bank_rad  := deg_to_rad(SPIRAL_BANK)
+	var bank_h    := tan(bank_rad) * half_w
+
+	# ── Build ribbon mesh ───────────────────────────────────────────────────────
+	var verts := PackedVector3Array()
+	var norms  := PackedVector3Array()
+	var uvs    := PackedVector2Array()
+	var idxs   := PackedInt32Array()
+	var running_v := 0.0
+	var tile_len  := TRACK_WIDTH
+
+	for i in n:
+		var cur   := pts[i]
+		var right := rights[i]
+
+		# Inside edge (toward center = -right) higher to bank against centrifugal force
+		var left_pt  := cur - right * half_w + Vector3(0, bank_h  + 0.02, 0)
+		var right_pt := cur + right * half_w + Vector3(0, -bank_h + 0.02, 0)
+
+		verts.append(left_pt)
+		verts.append(right_pt)
+
+		# Proper face normal: tangent × width_direction
+		var tangent_i := Vector3.ZERO
+		if i < n - 1:
+			tangent_i = (pts[i + 1] - pts[i]).normalized()
+		else:
+			tangent_i = (pts[i] - pts[i - 1]).normalized()
+		var width_dir   := (right_pt - left_pt).normalized()
+		var face_normal := tangent_i.cross(width_dir).normalized()
+		norms.append(face_normal)
+		norms.append(face_normal)
+
+		if i > 0:
+			running_v += cur.distance_to(pts[i - 1]) / tile_len
+		uvs.append(Vector2(0.0, running_v))
+		uvs.append(Vector2(1.0, running_v))
+
+	# Open strip — no loop closure
+	for i in n - 1:
+		var b  := i * 2
+		var nb := b + 2
+		idxs.append(b);     idxs.append(nb);     idxs.append(b + 1)
+		idxs.append(b + 1); idxs.append(nb);     idxs.append(nb + 1)
+
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = norms
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_INDEX]  = idxs
+
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+
+	var road_shader := load("res://shaders/road_surface.gdshader") as Shader
+	var road_mat    := ShaderMaterial.new()
+	road_mat.shader = road_shader
+	road_mat.set_shader_parameter("road_tex", load("res://Assets/roads/PLUS/Road1_B_dotted_white.png"))
+	road_mat.set_shader_parameter("darkness", 0.3)
+
+	var spiral_node := Node3D.new()
+	spiral_node.name = "SpiralRamp"
+	add_child(spiral_node)
+
+	var mi := MeshInstance3D.new()
+	mi.name             = "SpiralMesh"
+	mi.mesh             = mesh
+	mi.material_override = road_mat
+	spiral_node.add_child(mi)
+
+	# Trimesh collision so hover raycasts land on the spiral surface
+	var col_body := StaticBody3D.new()
+	col_body.name            = "SpiralCollision"
+	col_body.collision_layer = 1
+	col_body.collision_mask  = 0
+	spiral_node.add_child(col_body)
+	var trimesh := mesh.create_trimesh_shape()
+	if trimesh:
+		var cs := CollisionShape3D.new()
+		cs.shape = trimesh
+		col_body.add_child(cs)
+	else:
+		push_warning("TrackGenerator: spiral trimesh failed!")
+
+	# ── Edge lights every ~300 m ────────────────────────────────────────────────
+	var cyan        := Color(0.2, 0.8, 1.0)
+	var light_accum := 0.0
+	var light_gap   := 300.0
+	for i in range(1, n):
+		light_accum += pts[i].distance_to(pts[i - 1])
+		if light_accum < light_gap:
+			continue
+		light_accum -= light_gap
+		var pos   := pts[i]
+		var right := rights[i]
+		for side in [-1.0, 1.0]:
+			var edge_y := bank_h if side < 0.0 else -bank_h
+			var lamp   := OmniLight3D.new()
+			lamp.light_color            = cyan
+			lamp.light_energy           = 20.0
+			lamp.omni_range             = 300.0
+			lamp.shadow_enabled         = false
+			lamp.distance_fade_enabled  = true
+			lamp.distance_fade_begin    = 10000.0
+			lamp.distance_fade_length   = 1000.0
+			lamp.position = pos + right * side * (half_w - 20.0) + Vector3(0, edge_y + 15.0, 0)
+			spiral_node.add_child(lamp)
+
+	# ── Entry arch at the base ──────────────────────────────────────────────────
+	var entry_pos   := pts[0]
+	var entry_right := rights[0]
+	var entry_fwd   := (pts[1] - pts[0]).normalized()
+	var entry_angle := atan2(entry_fwd.x, entry_fwd.z)
+	var arch_col    := Color(1.0, 0.35, 0.0)   # Orange — distinct from main track cyan arches
+	var arch_h      := 70.0
+
+	for side in [-1.0, 1.0]:
+		var post_pos := entry_pos + entry_right * side * (half_w - 15.0) + Vector3(0, arch_h * 0.5, 0)
+		var post_mi  := MeshInstance3D.new()
+		var post_bm  := BoxMesh.new()
+		post_bm.size        = Vector3(4.0, arch_h, 4.0)
+		post_mi.mesh        = post_bm
+		post_mi.position    = post_pos
+		post_mi.rotation.y  = entry_angle
+		post_mi.material_override = _neon_mat(arch_col, 60.0)
+		spiral_node.add_child(post_mi)
+
+	var beam_pos := entry_pos + Vector3(0, arch_h + 2.0, 0)
+	var beam_mi  := MeshInstance3D.new()
+	var beam_bm  := BoxMesh.new()
+	beam_bm.size        = Vector3(TRACK_WIDTH - 30.0, 4.0, 4.0)
+	beam_mi.mesh        = beam_bm
+	beam_mi.position    = beam_pos
+	beam_mi.rotation.y  = entry_angle
+	beam_mi.material_override = _neon_mat(arch_col, 70.0)
+	spiral_node.add_child(beam_mi)
+
+	var entry_glow := OmniLight3D.new()
+	entry_glow.light_color           = arch_col
+	entry_glow.light_energy          = 50.0
+	entry_glow.omni_range            = 500.0
+	entry_glow.shadow_enabled        = false
+	entry_glow.distance_fade_enabled = true
+	entry_glow.distance_fade_begin   = 15000.0
+	entry_glow.distance_fade_length  = 2000.0
+	entry_glow.position = beam_pos
+	spiral_node.add_child(entry_glow)
+
+	print("TrackGenerator: spiral built — %d pts, %.0f m road, %.0f m climb" % [n, circumference, SPIRAL_HEIGHT])
 
 # ─── Checkpoints — lap gates evenly spaced around the circuit ────────────────
 func _build_checkpoints() -> void:
