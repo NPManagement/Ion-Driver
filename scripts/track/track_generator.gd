@@ -355,19 +355,32 @@ func _build_railings() -> void:
 			var bank_h := tan(deg_to_rad(bank)) * edge_dist
 			var side_h: float = -bank_h * sf
 			var rail_base_y: float = 0.02 + side_h
-			var rail_pos: Vector3 = mid + right * sf * edge_dist + Vector3(0, RAILING_HEIGHT * 0.5 + rail_base_y, 0)
 
-			_batch_box(rail_pos, Vector3(RAILING_THICKNESS, RAILING_HEIGHT, dist),
-				Vector3(0, angle, 0), seg_mat, chunk)
+			# Compute edge positions at both endpoints using each point's own
+			# right vector so adjacent segments share exact edge positions — no
+			# gaps on curves regardless of edge_dist or turn sharpness.
+			var right_b: Vector3 = rights[(i + 1) % n] if (i + 1) % n < rights.size() else right
+			if right_b.length_squared() < 0.001:
+				right_b = right
+			var edge_a: Vector3 = a + right * sf * edge_dist
+			var edge_b: Vector3 = b + right_b * sf * edge_dist
+			var edge_mid := (edge_a + edge_b) * 0.5
+			var edge_seg := edge_b - edge_a
+			var edge_len := edge_seg.length()
+			if edge_len < 0.01:
+				continue
+			var edge_angle := atan2(edge_seg.x, edge_seg.z)
+			var rail_pos: Vector3 = edge_mid + Vector3(0, RAILING_HEIGHT * 0.5 + rail_base_y, 0)
+
+			_batch_box(rail_pos, Vector3(RAILING_THICKNESS, RAILING_HEIGHT, edge_len),
+				Vector3(0, edge_angle, 0), seg_mat, chunk)
 
 			var shape := CollisionShape3D.new()
 			var box := BoxShape3D.new()
-			# Extend each segment slightly (+1m) so adjacent boxes overlap at corners
-			# — eliminates wedge-shaped gaps where direction changes between segments
-			box.size = Vector3(RAILING_THICKNESS, RAILING_HEIGHT, dist + 1.0)
+			box.size = Vector3(RAILING_THICKNESS, RAILING_HEIGHT, edge_len + 1.0)
 			shape.shape = box
 			shape.position = rail_pos
-			shape.rotation.y = angle
+			shape.rotation.y = edge_angle
 			chunk_bodies[cid][side_name].add_child(shape)
 
 		# Post accent every ~40m (every 8th hi-res segment ≈ 40m)
