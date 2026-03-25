@@ -101,6 +101,15 @@ var _track_half_width: float  = 160.0  # TRACK_WIDTH / 2
 var _off_road: bool           = false
 var _off_road_penalty_cooldown: float = 0.0  # Prevents repeated instant penalties
 
+# ─── Railing collision ────────────────────────────────────────────────────────
+const RAILING_RAY_LAYER := 4
+const RAILING_RAY_COUNT := 6   # 3 per side (front, mid, rear)
+const RAILING_RAY_REACH := 5.0 # How far sideways the rays extend
+var _railing_sparks: GPUParticles3D        # Reusable spark emitter (reparented to contact)
+var _railing_spark_light: OmniLight3D      # Flash at contact point
+var _railing_hit_cooldown: float = 0.0     # Prevent stacking penalties per frame
+var _railing_scrape_t: float     = 0.0     # Continuous scrape timer for sustained contact
+
 # ─── Physics State ─────────────────────────────────────────────────────────────
 var _prev_fwd_speed: float    = 0.0
 var _hover_avg_dist: float    = 0.85
@@ -824,6 +833,65 @@ func _build_effects() -> void:
 	if is_player:
 		_build_audio()
 
+	# ── Railing collision sparks ──────────────────────────────────────────────
+	_railing_sparks = GPUParticles3D.new()
+	_railing_sparks.amount = 48
+	_railing_sparks.lifetime = 0.5
+	_railing_sparks.explosiveness = 0.9   # Burst on contact
+	_railing_sparks.randomness = 0.6
+	_railing_sparks.one_shot = true
+	_railing_sparks.emitting = false
+	_railing_sparks.local_coords = false  # World space — sparks stay where they spawn
+	_railing_sparks.visibility_aabb = AABB(Vector3(-20, -20, -20), Vector3(40, 40, 40))
+
+	var rsmat := ParticleProcessMaterial.new()
+	rsmat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	rsmat.emission_sphere_radius = 0.3
+	rsmat.direction = Vector3(0, 1, 0)
+	rsmat.spread = 70.0
+	rsmat.initial_velocity_min = 20.0
+	rsmat.initial_velocity_max = 50.0
+	rsmat.scale_min = 0.04
+	rsmat.scale_max = 0.12
+	rsmat.gravity = Vector3(0, -15.0, 0)
+	rsmat.damping_min = 2.0
+	rsmat.damping_max = 5.0
+
+	var rs_grad := GradientTexture1D.new()
+	var rs_g := Gradient.new()
+	rs_g.colors = PackedColorArray([
+		Color(1.0, 0.9, 0.5, 1.0),    # Hot white-yellow
+		Color(1.0, 0.5, 0.1, 0.9),    # Orange
+		Color(0.8, 0.2, 0.0, 0.0),    # Fade to dark red
+	])
+	rs_g.offsets = PackedFloat32Array([0.0, 0.3, 1.0])
+	rs_grad.gradient = rs_g
+	rsmat.color_ramp = rs_grad
+
+	_railing_sparks.process_material = rsmat
+
+	var rs_quad := QuadMesh.new()
+	rs_quad.size = Vector2(0.15, 0.15)
+	var rs_mat := StandardMaterial3D.new()
+	rs_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	rs_mat.emission_enabled = true
+	rs_mat.emission = Color(1.0, 0.6, 0.2)
+	rs_mat.emission_energy_multiplier = 120.0
+	rs_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	rs_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	rs_mat.vertex_color_use_as_albedo = true
+	rs_quad.material = rs_mat
+	_railing_sparks.draw_pass_1 = rs_quad
+	add_child(_railing_sparks)
+
+	# Contact flash light
+	_railing_spark_light = OmniLight3D.new()
+	_railing_spark_light.light_color = Color(1.0, 0.6, 0.2)
+	_railing_spark_light.light_energy = 0.0
+	_railing_spark_light.omni_range = 15.0
+	_railing_spark_light.shadow_enabled = false
+	add_child(_railing_spark_light)
+
 	# TRON light trails — geometry ribbons built from position history
 	_trail_left = _make_trail_mesh()
 	_trail_left.name = "TrailL"
@@ -1074,6 +1142,7 @@ func _physics_process(delta: float) -> void:
 	_update_respawn(delta)
 	_check_slipstream()
 	_check_off_road(delta)
+	_check_railing_collision(delta)
 	_align_to_track(delta)
 	_apply_propulsion(delta)
 	_apply_steering(delta)
@@ -1372,10 +1441,101 @@ func _check_off_road(delta: float) -> void:
 	var barrier_dist := _track_half_width - 7.0  # 153m — where curbs actually are
 	_off_road = lateral_dist > barrier_dist
 
-	# Slam speed when hitting barriers
-	if _off_road and _off_road_penalty_cooldown <= 0.0:
-		linear_velocity *= 0.4
-		_off_road_penalty_cooldown = 0.3
+	# Speed penalty is now handled by _check_railing_collision() with sparks
+
+# ─── Railing collision — lateral raycasts detect track-edge walls ─────────────
+# Casts rays sideways from vehicle to find railing walls (layer 4).
+# On hit: sparks at contact, speed penalty, bounce force along wall normal.
+func _check_railing_collision(delta: float) -> void:
+	_railing_hit_cooldown = maxf(_railing_hit_cooldown - delta, 0.0)
+	_railing_scrape_t = maxf(_railing_scrape_t - delta, 0.0)
+
+	# Fade spark light
+	if _railing_spark_light:
+		_railing_spark_light.light_energy = lerpf(_railing_spark_light.light_energy, 0.0, delta * 12.0)
+
+	var space := get_world_3d().direct_space_state
+	if space == null:
+		return
+
+	var veh_right := global_transform.basis.x.normalized()
+	var veh_fwd   := -global_transform.basis.z.normalized()
+
+	# Ray origins: front, mid, rear — on both sides
+	var ray_origins := [
+		Vector3(0, 0.5,  2.2),   # Front centre-ish
+		Vector3(0, 0.5,  0.0),   # Mid
+		Vector3(0, 0.5, -2.2),   # Rear
+	]
+
+	var closest_hit_dist := RAILING_RAY_REACH + 1.0
+	var closest_hit_pos  := Vector3.ZERO
+	var closest_hit_n    := Vector3.ZERO
+	var any_hit          := false
+
+	for origin_local in ray_origins:
+		var origin_world := to_global(origin_local)
+		for side in [-1.0, 1.0]:
+			var ray_dir := veh_right * side
+			var rp := PhysicsRayQueryParameters3D.new()
+			rp.from           = origin_world
+			rp.to             = origin_world + ray_dir * RAILING_RAY_REACH
+			rp.collision_mask = RAILING_RAY_LAYER
+			var rr := space.intersect_ray(rp)
+			if not rr.is_empty():
+				var hit_dist := origin_world.distance_to(rr["position"] as Vector3)
+				if hit_dist < closest_hit_dist:
+					closest_hit_dist = hit_dist
+					closest_hit_pos  = rr["position"] as Vector3
+					closest_hit_n    = rr["normal"] as Vector3
+					any_hit = true
+
+	if not any_hit:
+		return
+
+	# ── Contact response ──────────────────────────────────────────────────────
+	# Railing proximity threshold — vehicle half-width is ~1.65m
+	var contact_threshold := 2.5
+
+	if closest_hit_dist < contact_threshold:
+		# How hard are we pressing into the wall?
+		var into_wall := linear_velocity.dot(-closest_hit_n)
+
+		if into_wall > 3.0:
+			# ── Speed penalty: scale with approach speed (Trackmania-style) ──
+			if _railing_hit_cooldown <= 0.0:
+				var penalty := clampf(into_wall / current_speed, 0.15, 0.5) if current_speed > 1.0 else 0.3
+				linear_velocity *= (1.0 - penalty)
+				_railing_hit_cooldown = 0.15  # Brief cooldown to prevent stacking
+
+			# ── Bounce force: push away from wall ─────────────────────────────
+			var bounce_strength := clampf(into_wall * 0.6, 5.0, 40.0)
+			linear_velocity += closest_hit_n * bounce_strength
+
+			# ── Sparks at contact point ───────────────────────────────────────
+			if _railing_sparks:
+				_railing_sparks.global_position = closest_hit_pos
+				# Aim sparks along the wall in travel direction + outward scatter
+				var spark_dir := (veh_fwd * 0.7 + closest_hit_n * 0.5).normalized()
+				var pmat := _railing_sparks.process_material as ParticleProcessMaterial
+				if pmat:
+					pmat.direction = spark_dir
+					# Scale particle speed with vehicle speed
+					pmat.initial_velocity_min = clampf(current_speed * 0.3, 10.0, 30.0)
+					pmat.initial_velocity_max = clampf(current_speed * 0.6, 20.0, 60.0)
+				_railing_sparks.restart()
+				_railing_sparks.emitting = true
+
+			# ── Flash light ───────────────────────────────────────────────────
+			if _railing_spark_light:
+				_railing_spark_light.global_position = closest_hit_pos
+				_railing_spark_light.light_energy = clampf(into_wall * 0.5, 2.0, 12.0)
+
+			# ── Camera shake ──────────────────────────────────────────────────
+			if is_player:
+				_cam_trauma = minf(_cam_trauma + into_wall * 0.012, 0.8)
+
+			_railing_scrape_t = 0.3
 
 # ─── Propulsion ────────────────────────────────────────────────────────────────
 func _apply_propulsion(delta: float) -> void:

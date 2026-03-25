@@ -31,6 +31,11 @@ var EDGE_OFFSET: float   = 150.0    # Yellow edge lines offset from centre
 const CURB_BLOCK_LEN = 5.5     # Length of each barrier block along track
 const CURB_SIZE      = Vector3(4.0, 10.0, 5.5)  # Tall barrier blocks
 
+# ─── Railing collision walls ────────────────────────────────────────────────
+const RAILING_HEIGHT    := 5.0    # Metres tall — enough to block the vehicle
+const RAILING_THICKNESS := 1.0    # Metres thick — thin wall
+const RAILING_LAYER     := 4      # Physics collision layer (hover=1, vehicle=2, checkpoint area=0)
+
 # ─── Track layout — massive flowing clockwise circuit ─────────────────────────
 # ~100km perimeter (Catmull-Rom measured). ONE straight. All turns sweeping
 # and gentle (no sharp 90°). Traces a large irregular oval with S-curves on
@@ -176,6 +181,7 @@ func _ready() -> void:
 	_compute_waypoints()  # compute waypoints + _banked_rights + _bank_angles FIRST
 	_init_chunks()        # create chunk containers BEFORE spawning content
 	_build_track()        # edge lines, curbs, signs (uses chunks)
+	_build_railings()     # solid collision walls along track edges
 	_build_road_surface() # uses waypoints to lay textured road ribbon
 	_build_checkpoints()  # lap gates around the circuit
 	if GameManager.selected_track == 0:
@@ -271,6 +277,85 @@ func _build_plane() -> void:
 	col.shape = box
 	col.position = Vector3(0, -0.5, 0)
 	body.add_child(col)
+
+# ─── Railing walls — solid collision barriers along both track edges ──────────
+# One StaticBody3D per chunk per side. Visual neon-lit batched boxes.
+# Collision on layer 4, detected by vehicle lateral raycasts.
+func _build_railings() -> void:
+	var n := waypoints.size()
+	if n < 2:
+		return
+
+	var edge_dist := EDGE_OFFSET + 3.0  # Just outside the painted edge line
+	var rail_mat := _neon_mat(Color(1.0, 0.5, 0.15), 30.0)       # Warm orange glow
+	var rail_dark_mat := _neon_mat(Color(0.4, 0.25, 0.1), 8.0)   # Dim orange segments
+	var post_mat := _neon_mat(Color(0.9, 0.6, 0.2), 50.0)        # Bright post accents
+
+	# Track which chunk bodies we've created: chunk_id → {left: StaticBody3D, right: StaticBody3D}
+	var chunk_bodies: Dictionary = {}
+
+	for i in n:
+		var a := waypoints[i]
+		var b := waypoints[(i + 1) % n]
+		var seg := b - a
+		var dist := seg.length()
+		if dist < 0.5:
+			continue
+
+		var fwd   := seg.normalized()
+		var right := fwd.cross(Vector3.UP).normalized()
+		var angle := atan2(fwd.x, fwd.z)
+		var mid   := (a + b) * 0.5
+		var chunk := _chunk_for(i)
+		var cid   := clampi(i / CHUNK_SIZE, 0, _chunks.size() - 1)
+
+		# Banking: average bank of endpoints
+		var bank_a: float = _bank_angles[i] if i < _bank_angles.size() else 0.0
+		var bank_b: float = _bank_angles[(i + 1) % n] if (i + 1) % n < _bank_angles.size() else 0.0
+		var bank := (bank_a + bank_b) * 0.5
+
+		# Ensure chunk collision bodies exist
+		if not chunk_bodies.has(cid):
+			var bodies := {}
+			for side_name in ["left", "right"]:
+				var sb := StaticBody3D.new()
+				sb.collision_layer = RAILING_LAYER
+				sb.collision_mask  = 0
+				chunk.add_child(sb)
+				bodies[side_name] = sb
+			chunk_bodies[cid] = bodies
+
+		# Visual neon pattern: alternating bright/dim like existing curbs
+		var is_bright := (i % 6) < 2
+		var seg_mat := rail_mat if is_bright else rail_dark_mat
+
+		for side in [-1, 1]:
+			var side_name := "left" if side == -1 else "right"
+			var bank_h := tan(deg_to_rad(bank)) * edge_dist
+			var side_h := bank_h * side  # Banking offset
+			var rail_base_y := 0.02 + side_h
+			var rail_pos := mid + right * side * edge_dist + Vector3(0, RAILING_HEIGHT * 0.5 + rail_base_y, 0)
+
+			# Visual: batched box for this segment
+			_batch_box(rail_pos, Vector3(RAILING_THICKNESS, RAILING_HEIGHT, dist),
+				Vector3(0, angle, 0), seg_mat, chunk)
+
+			# Collision shape on the chunk's StaticBody3D
+			var shape := CollisionShape3D.new()
+			var box := BoxShape3D.new()
+			box.size = Vector3(RAILING_THICKNESS, RAILING_HEIGHT, dist)
+			shape.shape = box
+			shape.position = rail_pos
+			shape.rotation.y = angle
+			chunk_bodies[cid][side_name].add_child(shape)
+
+		# Post accent every ~40m
+		if i % 4 == 0:
+			for side in [-1, 1]:
+				var bank_h := tan(deg_to_rad(bank)) * edge_dist
+				var ph := bank_h * side
+				var post_pos := a + right * side * edge_dist + Vector3(0, RAILING_HEIGHT + 0.02 + ph, 0)
+				_batch_box(post_pos, Vector3(0.6, 1.2, 0.6), Vector3.ZERO, post_mat, chunk)
 
 # ─── Road surface ribbon mesh — follows curves with proper UVs ───────────────
 func _build_road_surface() -> void:
