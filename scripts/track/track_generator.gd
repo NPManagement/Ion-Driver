@@ -330,11 +330,12 @@ func _build_railings() -> void:
 		var seg_mat := rail_mat if is_bright else rail_dark_mat
 
 		for side in [-1, 1]:
+			var sf := float(side)
 			var side_name := "left" if side == -1 else "right"
 			var bank_h := tan(deg_to_rad(bank)) * edge_dist
-			var side_h := bank_h * side  # Banking offset
-			var rail_base_y := 0.02 + side_h
-			var rail_pos := mid + right * side * edge_dist + Vector3(0, RAILING_HEIGHT * 0.5 + rail_base_y, 0)
+			var side_h: float = bank_h * sf
+			var rail_base_y: float = 0.02 + side_h
+			var rail_pos: Vector3 = mid + right * sf * edge_dist + Vector3(0, RAILING_HEIGHT * 0.5 + rail_base_y, 0)
 
 			# Visual: batched box for this segment
 			_batch_box(rail_pos, Vector3(RAILING_THICKNESS, RAILING_HEIGHT, dist),
@@ -352,9 +353,10 @@ func _build_railings() -> void:
 		# Post accent every ~40m
 		if i % 4 == 0:
 			for side in [-1, 1]:
-				var bank_h := tan(deg_to_rad(bank)) * edge_dist
-				var ph := bank_h * side
-				var post_pos := a + right * side * edge_dist + Vector3(0, RAILING_HEIGHT + 0.02 + ph, 0)
+				var sf2 := float(side)
+				var bank_h2 := tan(deg_to_rad(bank)) * edge_dist
+				var ph: float = bank_h2 * sf2
+				var post_pos: Vector3 = a + right * sf2 * edge_dist + Vector3(0, RAILING_HEIGHT + 0.02 + ph, 0)
 				_batch_box(post_pos, Vector3(0.6, 1.2, 0.6), Vector3.ZERO, post_mat, chunk)
 
 # ─── Road surface ribbon mesh — follows curves with proper UVs ───────────────
