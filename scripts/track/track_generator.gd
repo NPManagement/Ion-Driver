@@ -401,22 +401,91 @@ func _build_road_surface() -> void:
 	mi.material_override = mat
 	add_child(mi)
 
-	# For tracks with elevation/banking, create collision from road mesh so hover follows terrain
+	# For tracks with elevation/banking, create a THICK collision slab so the
+	# vehicle can't tunnel through the paper-thin visual mesh at high speed.
+	# Extrudes 8 m below the road surface along the banked normal.
 	if GameManager.selected_track != 0:
 		var col_body := StaticBody3D.new()
 		col_body.name = "RoadCollision"
 		col_body.collision_layer = 1
 		col_body.collision_mask  = 0
-		# Position at origin — road mesh verts are already in world space
 		col_body.position = Vector3.ZERO
 		add_child(col_body)
-		var trimesh := mesh.create_trimesh_shape()
+
+		var col_depth := 8.0  # metres below surface — generous enough to catch tunnelling
+		var mn2 := mesh_pts.size()
+		var col_verts := PackedVector3Array()
+		var col_indices := PackedInt32Array()
+
+		# Build top + bottom vertex pairs for each cross-section
+		# Layout: for each waypoint i → 4 verts: top-left, top-right, bot-left, bot-right
+		for i in mn2:
+			var cur2: Vector3 = mesh_pts[i]
+			var right2: Vector3 = mesh_rights[i]
+			var bank_deg2: float = mesh_banks[i] if i < mesh_banks.size() else 0.0
+			var bank_h2 := tan(deg_to_rad(bank_deg2)) * half_w
+			var left_top  := cur2 - right2 * half_w + Vector3(0, 0.02 + bank_h2, 0)
+			var right_top := cur2 + right2 * half_w + Vector3(0, 0.02 - bank_h2, 0)
+
+			# Surface normal for this cross-section (perpendicular to banked surface)
+			var surf_n := (right_top - left_top).cross(
+				mesh_pts[(i + 1) % mn2] - cur2).normalized()
+			if surf_n.y < 0.0:
+				surf_n = -surf_n  # Ensure outward-facing (upward)
+
+			var left_bot  := left_top  - surf_n * col_depth
+			var right_bot := right_top - surf_n * col_depth
+
+			col_verts.append(left_top)    # base + 0
+			col_verts.append(right_top)   # base + 1
+			col_verts.append(left_bot)    # base + 2
+			col_verts.append(right_bot)   # base + 3
+
+		# Closing cross-section (wraps to first)
+		var cr0: Vector3 = mesh_rights[0]
+		var cp0: Vector3 = mesh_pts[0]
+		var cb0: float = mesh_banks[0] if not mesh_banks.is_empty() else 0.0
+		var cbh0 := tan(deg_to_rad(cb0)) * half_w
+		var cl_top := cp0 - cr0 * half_w + Vector3(0, 0.02 + cbh0, 0)
+		var crt_top := cp0 + cr0 * half_w + Vector3(0, 0.02 - cbh0, 0)
+		var csn := (crt_top - cl_top).cross(mesh_pts[1] - cp0).normalized()
+		if csn.y < 0.0:
+			csn = -csn
+		col_verts.append(cl_top)
+		col_verts.append(crt_top)
+		col_verts.append(cl_top - csn * col_depth)
+		col_verts.append(crt_top - csn * col_depth)
+
+		# Build indices — for each segment: top face, bottom face, two side faces
+		for i in mn2:
+			var b  := i * 4          # current cross-section base
+			var nb := (i + 1) * 4    # next cross-section base
+			# Top face (two triangles)
+			col_indices.append(b);     col_indices.append(nb);     col_indices.append(b + 1)
+			col_indices.append(b + 1); col_indices.append(nb);     col_indices.append(nb + 1)
+			# Bottom face (two triangles, wound opposite)
+			col_indices.append(b + 2); col_indices.append(b + 3); col_indices.append(nb + 2)
+			col_indices.append(b + 3); col_indices.append(nb + 3); col_indices.append(nb + 2)
+			# Left side (top-left to bot-left)
+			col_indices.append(b);     col_indices.append(b + 2); col_indices.append(nb)
+			col_indices.append(nb);    col_indices.append(b + 2); col_indices.append(nb + 2)
+			# Right side (top-right to bot-right)
+			col_indices.append(b + 1); col_indices.append(nb + 1); col_indices.append(b + 3)
+			col_indices.append(nb + 1); col_indices.append(nb + 3); col_indices.append(b + 3)
+
+		var col_arrays := []
+		col_arrays.resize(Mesh.ARRAY_MAX)
+		col_arrays[Mesh.ARRAY_VERTEX] = col_verts
+		col_arrays[Mesh.ARRAY_INDEX]  = col_indices
+		var col_mesh := ArrayMesh.new()
+		col_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, col_arrays)
+		var trimesh := col_mesh.create_trimesh_shape()
 		if trimesh:
 			var col_shape := CollisionShape3D.new()
 			col_shape.shape = trimesh
 			col_body.add_child(col_shape)
 		else:
-			push_warning("TrackGenerator: Failed to create road collision trimesh!")
+			push_warning("TrackGenerator: Failed to create thick road collision trimesh!")
 
 # ─── Checkpoints — lap gates evenly spaced around the circuit ────────────────
 func _build_checkpoints() -> void:

@@ -1,4 +1,26 @@
+# Godot
 .godot/
+*.import
+*.tscn.res
+*.tres.res
+*.gdshader.res
+
+# Editor
 .claude/
 .opencode/
+.vscode/
+*.code-workspace
+*.swp
+*.swo
+*~
+
+# OpenCode (personal - not for sharing)
 opencode.jsonc
+
+# Build output
+export/
+build/
+
+# OS
+.DS_Store
+Thumbs.db

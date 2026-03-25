@@ -1136,6 +1136,28 @@ func _apply_hover(_delta: float) -> void:
 		# Cancel gravity so ship feels weightless while hovering
 		apply_central_force(Vector3.UP * gravity_scale * 9.8 * mass)
 
+		# ── Predictive anti-tunnel ────────────────────────────────────────────
+		# At high speed, cast a ray along our velocity vector for 1 frame of
+		# travel. If it hits the road surface *from above* (approaching the
+		# surface), and we'd overshoot past it, deflect the velocity component
+		# that's driving us into the surface so we skim along instead.
+		if horiz_spd > 60.0:
+			var vel_dir  := linear_velocity.normalized()
+			var look_len := linear_velocity.length() * _delta * 2.5  # 2.5 frames ahead
+			if look_len > 1.0:
+				var vp := PhysicsRayQueryParameters3D.new()
+				vp.from           = global_position
+				vp.to             = global_position + vel_dir * look_len
+				vp.collision_mask = 1
+				var vr := space.intersect_ray(vp)
+				if not vr.is_empty():
+					var vhit_n := (vr["normal"] as Vector3)
+					# Only act if we're heading INTO the surface (not away)
+					var approach := linear_velocity.dot(-vhit_n)
+					if approach > 10.0:
+						# Remove the into-surface component, keep tangential speed
+						linear_velocity += vhit_n * approach
+
 		# ── Magnet lock ───────────────────────────────────────────────────────
 		# Compute the velocity the car needs along the road normal to sit at
 		# hover_height. Directly impulse to that velocity — no spring, no bounce.
@@ -1146,9 +1168,55 @@ func _apply_hover(_delta: float) -> void:
 		var target_n := clampf(err * 40.0, -20.0, 50.0)
 		apply_central_impulse(track_normal * (target_n - vel_n) * mass)
 	else:
-		on_track        = false
-		track_normal    = Vector3.UP
-		_hover_avg_dist = MAX_RAY_LENGTH
+		# ── Tunnel-through recovery ──────────────────────────────────────────
+		# All downward rays missed. We may have punched through the road.
+		# Strategy: cast a DOWNWARD ray from well above our position to find
+		# the TOP surface of the road. This avoids the old bug where an
+		# upward ray hit the slab's bottom face and teleported us inside it.
+		# Try multiple probe origins: last known track normal, vehicle local
+		# up, and world up — to handle steep banks where "above" isn't +Y.
+		var recovered := false
+		var probe_dirs: Array[Vector3] = []
+		probe_dirs.append(track_normal)              # Last known surface normal
+		probe_dirs.append(global_basis.y.normalized()) # Vehicle's local up
+		if track_normal.distance_to(Vector3.UP) > 0.1:
+			probe_dirs.append(Vector3.UP)             # World up (if different)
+
+		for probe_up in probe_dirs:
+			if recovered:
+				break
+			# Start 20m above along this direction, cast 40m downward
+			var probe_origin := global_position + probe_up * 20.0
+			var probe_end    := global_position - probe_up * 20.0
+			var rp := PhysicsRayQueryParameters3D.new()
+			rp.from           = probe_origin
+			rp.to             = probe_end
+			rp.collision_mask = 1
+			var rr := space.intersect_ray(rp)
+			if not rr.is_empty():
+				var surf_pos := rr["position"] as Vector3
+				var surf_n   := rr["normal"] as Vector3
+				# Ensure normal faces outward (toward probe origin, away from slab)
+				if surf_n.dot(probe_up) < 0.0:
+					surf_n = -surf_n
+				# Only recover if we're actually BELOW this surface (tunnelled)
+				var to_surf := surf_pos - global_position
+				if to_surf.dot(probe_up) > 0.5:
+					# Teleport to hover_height above the TOP surface
+					global_position  = surf_pos + surf_n * hover_height
+					# Kill velocity component driving into the surface
+					var pen_vel := linear_velocity.dot(-surf_n)
+					if pen_vel > 0.0:
+						linear_velocity += surf_n * pen_vel
+					on_track        = true
+					track_normal    = surf_n
+					_hover_avg_dist = hover_height
+					recovered       = true
+
+		if not recovered:
+			on_track        = false
+			track_normal    = Vector3.UP
+			_hover_avg_dist = MAX_RAY_LENGTH
 
 
 func _track_airtime(delta: float) -> void:
