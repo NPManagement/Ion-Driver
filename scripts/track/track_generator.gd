@@ -39,7 +39,7 @@ const CURB_SIZE      = Vector3(4.0, 10.0, 5.5)  # Tall barrier blocks
 # ─── Railing collision walls ────────────────────────────────────────────────
 const RAILING_HEIGHT    := 5.0    # Metres tall — enough to block the vehicle
 const RAILING_THICKNESS := 3.0    # Metres thick — wide enough to prevent high-speed tunnelling
-const RAILING_LAYER     := 4      # Physics collision layer (hover=1, vehicle=2, checkpoint area=0)
+const RAILING_LAYER     := 8      # Physics collision layer 4 (bitmask 8) — matches vehicle collision_mask
 
 # ─── Track layout — massive flowing clockwise circuit ─────────────────────────
 # ~100km perimeter (Catmull-Rom measured). ONE straight. All turns sweeping
@@ -382,6 +382,19 @@ func _build_railings() -> void:
 			shape.position = rail_pos
 			shape.rotation.y = edge_angle
 			chunk_bodies[cid][side_name].add_child(shape)
+
+			# Junction plug — square block at each endpoint seals V-gaps
+			# where angled segments meet on curves
+			var plug_pos: Vector3 = edge_b + Vector3(0, RAILING_HEIGHT * 0.5 + rail_base_y, 0)
+			var plug_size := RAILING_THICKNESS * 2.0
+			_batch_box(plug_pos, Vector3(plug_size, RAILING_HEIGHT, plug_size),
+				Vector3.ZERO, seg_mat, chunk)
+			var plug_shape := CollisionShape3D.new()
+			var plug_box := BoxShape3D.new()
+			plug_box.size = Vector3(plug_size, RAILING_HEIGHT, plug_size)
+			plug_shape.shape = plug_box
+			plug_shape.position = plug_pos
+			chunk_bodies[cid][side_name].add_child(plug_shape)
 
 		# Post accent every ~40m (every 8th hi-res segment ≈ 40m)
 		if i % 8 == 0:
