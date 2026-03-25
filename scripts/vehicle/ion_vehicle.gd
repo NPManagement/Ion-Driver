@@ -784,10 +784,10 @@ func _build_visual_mesh() -> void:
 		_vehicle_mesh.add_child(ub_sp)
 		_ub_sparks.append(ub_sp)
 
-	# Collision box
+	# Collision box — tall enough to reliably hit 5m railing walls at any speed
 	var col_shape := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	box.size = Vector3(3.8, 0.22, 5.0)
+	box.size = Vector3(3.8, 2.0, 5.0)
 	col_shape.shape    = box
 	col_shape.position = Vector3(0, 0.0, 0)
 	add_child(col_shape)
@@ -1503,14 +1503,18 @@ func _check_railing_collision(delta: float) -> void:
 		var into_wall := linear_velocity.dot(-closest_hit_n)
 
 		if into_wall > 3.0:
-			# ── Speed penalty: scale with approach speed (Trackmania-style) ──
+			# ── Hard containment: kill ALL velocity going into the wall ───────
+			# This prevents punching through at any speed — the wall is absolute.
+			linear_velocity += closest_hit_n * into_wall
+
+			# ── Speed penalty: friction scrub from wall contact ───────────────
 			if _railing_hit_cooldown <= 0.0:
 				var penalty := clampf(into_wall / current_speed, 0.15, 0.5) if current_speed > 1.0 else 0.3
 				linear_velocity *= (1.0 - penalty)
 				_railing_hit_cooldown = 0.15  # Brief cooldown to prevent stacking
 
-			# ── Bounce force: push away from wall ─────────────────────────────
-			var bounce_strength := clampf(into_wall * 0.6, 5.0, 40.0)
+			# ── Bounce: push away from wall so vehicle doesn't stick ──────────
+			var bounce_strength := clampf(into_wall * 0.4, 5.0, 30.0)
 			linear_velocity += closest_hit_n * bounce_strength
 
 			# ── Sparks at contact point ───────────────────────────────────────
