@@ -98,54 +98,68 @@ const CONTROL_POINTS = [
 	Vector3( -2200,  0,   -600),    # 44  north closing — wraps to #0
 ]
 
-# ─── Test Track — High-Speed Banked Oval for 3000+ km/h testing ─────────────
-# Giant oval: ~100km perimeter. Clockwise. Two mega-banked hairpins, two long
-# straights. Straight 1 = flat S/F drag strip (~15km). East Turn = rising
-# banked sweep up to 400m elevation, 30° bank. Straight 2 = hilly cross (~15km).
-# West Turn = mirror of East. No barriers — full open road.
-# At 833 m/s (3000 km/h) one lap ≈ 2 min. Designed for unrestricted testing.
+# ─── Test Track — High-Speed Banked Oval with Corkscrew ─────────────────────
+# Clockwise circuit. S/F flat drag straight → East banked hairpin (400m climb)
+# → flat approach → CORKSCREW (1 full right-hand helix, 300m climb, r=1500m)
+# → descent ramp back to ground → West banked hairpin → flat return.
+# Corkscrew centre (4500, 0, 19500). All sections flat or smoothly banked —
+# no sudden hills or bumps that could launch the car.
 const TEST_CONTROL_POINTS = [
-	# ══ S/F Straight — flat, heading East, ~15km ══
+	# ══ S/F Straight — flat, heading East ══
 	Vector3(      0,    0,      0),   #  0  Start / Finish line
-	Vector3(   5000,    0,      0),   #  1  mid S1
-	Vector3(  10000,    0,      0),   #  2  S1 three-quarter
-	Vector3(  13500,    0,      0),   #  3  braking zone / turn approach
+	Vector3(   5000,    0,      0),   #  1  mid straight
+	Vector3(  10000,    0,      0),   #  2  three-quarter
+	Vector3(  13500,    0,      0),   #  3  braking zone
 
 	# ══ East Banked Turn — sweeping right (south), climbing to 400m, 30° bank ══
-	Vector3(  16500,  120,   2800),   #  4  turn entry, start climbing
+	Vector3(  16500,  120,   2800),   #  4  entry, climbing
 	Vector3(  19200,  280,   6500),   #  5  mid-entry
-	Vector3(  20800,  420,  11000),   #  6  apex — peak elevation, max bank
-	Vector3(  19500,  260,  15500),   #  7  post-apex, descending
-	Vector3(  16000,   60,  18800),   #  8  turn exit, back to low ground
+	Vector3(  20800,  400,  11000),   #  6  apex
+	Vector3(  19500,  220,  15500),   #  7  post-apex, descending
+	Vector3(  15500,   30,  19000),   #  8  exit, nearly flat
 
-	# ══ Straight 2 — rolling hills heading West, ~15km ══
-	Vector3(  12000,    0,  21000),   #  9  valley floor
-	Vector3(   8500,  220,  21500),   # 10  hill 1 crest
-	Vector3(   5000,   20,  21000),   # 11  valley
-	Vector3(   1500,  280,  21500),   # 12  hill 2 crest
-	Vector3(  -2500,   15,  21000),   # 13  valley
-	Vector3(  -6500,    0,  21000),   # 14  west approach, flat
+	# ══ Approach to Corkscrew — flat, heading West ══
+	Vector3(  10000,    0,  21000),   #  9  flat approach
+	Vector3(   6500,    0,  21000),   # 10  corkscrew entry zone
+
+	# ══ Corkscrew — 1 full clockwise helix, r=1500m, climbing 300m ══
+	# Centre (4500, 0, 19500). Entry heading West; exits heading West 300m higher.
+	# Control points at every 45° around the circle.
+	Vector3(   4500,    0,  21000),   # 11  entry  (θ=090°)
+	Vector3(   3440,   38,  20560),   # 12  (θ=135°)
+	Vector3(   3000,   75,  19500),   # 13  (θ=180°) heading north
+	Vector3(   3440,  113,  18440),   # 14  (θ=225°)
+	Vector3(   4500,  150,  18000),   # 15  (θ=270°) heading east
+	Vector3(   5560,  188,  18440),   # 16  (θ=315°)
+	Vector3(   6000,  225,  19500),   # 17  (θ=360°) heading south
+	Vector3(   5560,  263,  20560),   # 18  (θ=405°)
+	Vector3(   4500,  300,  21000),   # 19  exit   (θ=450°) heading West, 300m up
+
+	# ══ Descent — smooth ramp back to ground ══
+	Vector3(      0,  150,  22000),   # 20  mid-descent
+	Vector3(  -4000,    0,  21500),   # 21  ground level, join west approach
 
 	# ══ West Banked Turn — sweeping right (north), mirror of East, 30° bank ══
-	Vector3(  -9500,   60,  18800),   # 15  turn entry
-	Vector3( -13000,  260,  15500),   # 16  mid-entry
-	Vector3( -14500,  420,  11000),   # 17  apex — peak elevation, max bank
-	Vector3( -13200,  280,   6500),   # 18  post-apex, descending
-	Vector3( -10500,  120,   2800),   # 19  turn exit
+	Vector3(  -7000,   60,  18800),   # 22  entry
+	Vector3( -10500,  260,  15500),   # 23  mid-entry
+	Vector3( -13000,  400,  11000),   # 24  apex
+	Vector3( -11500,  280,   6500),   # 25  post-apex
+	Vector3(  -9500,  120,   2800),   # 26  exit
 
 	# ══ Return to S/F ══
-	Vector3(  -7000,    0,      0),   # 20  closing straight join
-	Vector3(  -3000,    0,      0),   # 21  approaching S/F
+	Vector3(  -7000,    0,      0),   # 27  closing join
+	Vector3(  -3000,    0,      0),   # 28  approaching S/F
 ]
 
-# Bank angles in degrees per control point (positive = banked for right turn)
+# Bank angles per control point (positive = right-turn banking, outer edge up)
 const TEST_BANK_ANGLES = [
-	0.0,  0.0,  0.0,  3.0,           # S1: flat with gentle approach lean
-	12.0, 24.0, 30.0, 24.0, 10.0,   # East turn: full 30° bank at apex
-	0.0,  0.0,  0.0,  0.0,  0.0,    # S2 hills: flat (elevation only)
-	3.0,
-	10.0, 24.0, 30.0, 24.0, 12.0,   # West turn: full 30° bank at apex
-	3.0,  0.0,                        # Return: ease out
+	0.0,  0.0,  0.0,  3.0,                               # S/F straight
+	12.0, 24.0, 30.0, 24.0, 10.0,                        # East turn
+	0.0,  0.0,                                            # Flat approach
+	0.0, 15.0, 20.0, 20.0, 20.0, 20.0, 20.0, 15.0, 0.0, # Corkscrew (right-turn bank)
+	0.0,  0.0,                                            # Descent
+	10.0, 24.0, 30.0, 24.0, 12.0,                        # West turn
+	3.0,  0.0,                                            # Return
 ]
 
 # Banking data per interpolated waypoint (filled during _compute_waypoints)
@@ -163,8 +177,6 @@ func _ready() -> void:
 	_init_chunks()        # create chunk containers BEFORE spawning content
 	_build_track()        # edge lines, curbs, signs (uses chunks)
 	_build_road_surface() # uses waypoints to lay textured road ribbon
-	if GameManager.selected_track != 0:
-		_build_spiral_ramp()  # corkscrew helix in the center of the oval
 	_build_checkpoints()  # lap gates around the circuit
 	if GameManager.selected_track == 0:
 		_build_city_scenery()
@@ -405,196 +417,6 @@ func _build_road_surface() -> void:
 			col_body.add_child(col_shape)
 		else:
 			push_warning("TrackGenerator: Failed to create road collision trimesh!")
-
-# ─── Spiral corkscrew — helix road in the oval interior for physics testing ──
-# Entry at (2000, 0, 10500) — ~10.5 km north of S/F line, inside the oval.
-# Two counterclockwise revolutions climbing 400 m. Same road width as main track.
-# Separate mesh + collision; does not affect waypoints or lap logic.
-func _build_spiral_ramp() -> void:
-	const SPIRAL_CENTER := Vector3(0.0, 0.0, 10500.0)
-	const SPIRAL_RADIUS := 2000.0    # Large enough to hit at moderate speed
-	const SPIRAL_HEIGHT := 400.0     # Total climb over both revolutions
-	const SPIRAL_REVS   := 2.0       # Full helix turns
-	const SPIRAL_BANK   := 18.0      # Degrees inward (constant radius → constant bank)
-
-	var half_w       := TRACK_WIDTH * 0.5
-	var circumference := SPIRAL_REVS * TAU * SPIRAL_RADIUS
-	var num_pts      := maxi(200, ceili(circumference / 5.0))  # ~5 m vertex spacing
-
-	var pts:    Array[Vector3] = []
-	var rights: Array[Vector3] = []
-
-	var height_per_radian := SPIRAL_HEIGHT / (SPIRAL_REVS * TAU)
-
-	for i in num_pts + 1:
-		var t     := float(i) / float(num_pts)
-		var angle := t * SPIRAL_REVS * TAU
-
-		var px := SPIRAL_CENTER.x + SPIRAL_RADIUS * cos(angle)
-		var py := SPIRAL_CENTER.y + t * SPIRAL_HEIGHT
-		var pz := SPIRAL_CENTER.z + SPIRAL_RADIUS * sin(angle)
-		pts.append(Vector3(px, py, pz))
-
-		# Tangent: analytic derivative of helix position w.r.t. angle
-		var tx := -sin(angle)
-		var ty :=  height_per_radian / SPIRAL_RADIUS   # dy/d(angle) / radius
-		var tz :=  cos(angle)
-		var tangent := Vector3(tx, ty, tz).normalized()
-
-		# Right vector pointing OUTWARD from center (for left-turn banking)
-		rights.append(Vector3.UP.cross(tangent).normalized())
-
-	var n         := pts.size()
-	var bank_rad  := deg_to_rad(SPIRAL_BANK)
-	var bank_h    := tan(bank_rad) * half_w
-
-	# ── Build ribbon mesh ───────────────────────────────────────────────────────
-	var verts := PackedVector3Array()
-	var norms  := PackedVector3Array()
-	var uvs    := PackedVector2Array()
-	var idxs   := PackedInt32Array()
-	var running_v := 0.0
-	var tile_len  := TRACK_WIDTH
-
-	for i in n:
-		var cur   := pts[i]
-		var right := rights[i]
-
-		# Inside edge (toward center = -right) higher to bank against centrifugal force
-		var left_pt  := cur - right * half_w + Vector3(0, bank_h  + 0.02, 0)
-		var right_pt := cur + right * half_w + Vector3(0, -bank_h + 0.02, 0)
-
-		verts.append(left_pt)
-		verts.append(right_pt)
-
-		# Proper face normal: tangent × width_direction
-		var tangent_i := Vector3.ZERO
-		if i < n - 1:
-			tangent_i = (pts[i + 1] - pts[i]).normalized()
-		else:
-			tangent_i = (pts[i] - pts[i - 1]).normalized()
-		var width_dir   := (right_pt - left_pt).normalized()
-		var face_normal := tangent_i.cross(width_dir).normalized()
-		norms.append(face_normal)
-		norms.append(face_normal)
-
-		if i > 0:
-			running_v += cur.distance_to(pts[i - 1]) / tile_len
-		uvs.append(Vector2(0.0, running_v))
-		uvs.append(Vector2(1.0, running_v))
-
-	# Open strip — no loop closure
-	for i in n - 1:
-		var b  := i * 2
-		var nb := b + 2
-		idxs.append(b);     idxs.append(nb);     idxs.append(b + 1)
-		idxs.append(b + 1); idxs.append(nb);     idxs.append(nb + 1)
-
-	var arrays := []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = verts
-	arrays[Mesh.ARRAY_NORMAL] = norms
-	arrays[Mesh.ARRAY_TEX_UV] = uvs
-	arrays[Mesh.ARRAY_INDEX]  = idxs
-
-	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-
-	var road_shader := load("res://shaders/road_surface.gdshader") as Shader
-	var road_mat    := ShaderMaterial.new()
-	road_mat.shader = road_shader
-	road_mat.set_shader_parameter("road_tex", load("res://Assets/roads/PLUS/Road1_B_dotted_white.png"))
-	road_mat.set_shader_parameter("darkness", 0.3)
-
-	var spiral_node := Node3D.new()
-	spiral_node.name = "SpiralRamp"
-	add_child(spiral_node)
-
-	var mi := MeshInstance3D.new()
-	mi.name             = "SpiralMesh"
-	mi.mesh             = mesh
-	mi.material_override = road_mat
-	spiral_node.add_child(mi)
-
-	# Trimesh collision so hover raycasts land on the spiral surface
-	var col_body := StaticBody3D.new()
-	col_body.name            = "SpiralCollision"
-	col_body.collision_layer = 1
-	col_body.collision_mask  = 0
-	spiral_node.add_child(col_body)
-	var trimesh := mesh.create_trimesh_shape()
-	if trimesh:
-		var cs := CollisionShape3D.new()
-		cs.shape = trimesh
-		col_body.add_child(cs)
-	else:
-		push_warning("TrackGenerator: spiral trimesh failed!")
-
-	# ── Edge lights every ~300 m ────────────────────────────────────────────────
-	var cyan        := Color(0.2, 0.8, 1.0)
-	var light_accum := 0.0
-	var light_gap   := 300.0
-	for i in range(1, n):
-		light_accum += pts[i].distance_to(pts[i - 1])
-		if light_accum < light_gap:
-			continue
-		light_accum -= light_gap
-		var pos   := pts[i]
-		var right := rights[i]
-		for side in [-1.0, 1.0]:
-			var edge_y := bank_h if side < 0.0 else -bank_h
-			var lamp   := OmniLight3D.new()
-			lamp.light_color            = cyan
-			lamp.light_energy           = 20.0
-			lamp.omni_range             = 300.0
-			lamp.shadow_enabled         = false
-			lamp.distance_fade_enabled  = true
-			lamp.distance_fade_begin    = 10000.0
-			lamp.distance_fade_length   = 1000.0
-			lamp.position = pos + right * side * (half_w - 20.0) + Vector3(0, edge_y + 15.0, 0)
-			spiral_node.add_child(lamp)
-
-	# ── Entry arch at the base ──────────────────────────────────────────────────
-	var entry_pos   := pts[0]
-	var entry_right := rights[0]
-	var entry_fwd   := (pts[1] - pts[0]).normalized()
-	var entry_angle := atan2(entry_fwd.x, entry_fwd.z)
-	var arch_col    := Color(1.0, 0.35, 0.0)   # Orange — distinct from main track cyan arches
-	var arch_h      := 70.0
-
-	for side in [-1.0, 1.0]:
-		var post_pos: Vector3 = entry_pos + entry_right * float(side) * (half_w - 15.0) + Vector3(0, arch_h * 0.5, 0)
-		var post_mi  := MeshInstance3D.new()
-		var post_bm  := BoxMesh.new()
-		post_bm.size        = Vector3(4.0, arch_h, 4.0)
-		post_mi.mesh        = post_bm
-		post_mi.position    = post_pos
-		post_mi.rotation.y  = entry_angle
-		post_mi.material_override = _neon_mat(arch_col, 60.0)
-		spiral_node.add_child(post_mi)
-
-	var beam_pos := entry_pos + Vector3(0, arch_h + 2.0, 0)
-	var beam_mi  := MeshInstance3D.new()
-	var beam_bm  := BoxMesh.new()
-	beam_bm.size        = Vector3(TRACK_WIDTH - 30.0, 4.0, 4.0)
-	beam_mi.mesh        = beam_bm
-	beam_mi.position    = beam_pos
-	beam_mi.rotation.y  = entry_angle
-	beam_mi.material_override = _neon_mat(arch_col, 70.0)
-	spiral_node.add_child(beam_mi)
-
-	var entry_glow := OmniLight3D.new()
-	entry_glow.light_color           = arch_col
-	entry_glow.light_energy          = 50.0
-	entry_glow.omni_range            = 500.0
-	entry_glow.shadow_enabled        = false
-	entry_glow.distance_fade_enabled = true
-	entry_glow.distance_fade_begin   = 15000.0
-	entry_glow.distance_fade_length  = 2000.0
-	entry_glow.position = beam_pos
-	spiral_node.add_child(entry_glow)
-
-	print("TrackGenerator: spiral built — %d pts, %.0f m road, %.0f m climb" % [n, circumference, SPIRAL_HEIGHT])
 
 # ─── Checkpoints — lap gates evenly spaced around the circuit ────────────────
 func _build_checkpoints() -> void:
