@@ -232,7 +232,8 @@ func _configure_rigidbody() -> void:
 	linear_damp           = 0.02   # Near zero — aero drag does all the speed limiting
 	angular_damp          = 2.5    # Strong yaw damping prevents spinouts
 	collision_layer       = 2      # Detected by checkpoint Area3Ds (mask=2)
-	collision_mask        = 0      # No physical collision with track — hover spring handles everything
+	collision_mask        = 8      # Collide with railing walls (layer 4) — hover spring handles track
+	continuous_cd         = true   # Prevent tunnelling through thin walls at high speed
 
 func _build_visual_mesh() -> void:
 	_vehicle_mesh = Node3D.new()

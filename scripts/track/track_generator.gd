@@ -38,7 +38,7 @@ const CURB_SIZE      = Vector3(4.0, 10.0, 5.5)  # Tall barrier blocks
 
 # ─── Railing collision walls ────────────────────────────────────────────────
 const RAILING_HEIGHT    := 5.0    # Metres tall — enough to block the vehicle
-const RAILING_THICKNESS := 1.0    # Metres thick — thin wall
+const RAILING_THICKNESS := 3.0    # Metres thick — wide enough to prevent high-speed tunnelling
 const RAILING_LAYER     := 4      # Physics collision layer (hover=1, vehicle=2, checkpoint area=0)
 
 # ─── Track layout — massive flowing clockwise circuit ─────────────────────────
@@ -340,7 +340,7 @@ func _build_railings() -> void:
 			for side_name in ["left", "right"]:
 				var sb := StaticBody3D.new()
 				sb.collision_layer = RAILING_LAYER
-				sb.collision_mask  = 0
+				sb.collision_mask  = 2   # Detect vehicle (layer 2) for solid collision
 				chunk.add_child(sb)
 				bodies[side_name] = sb
 			chunk_bodies[cid] = bodies
@@ -362,7 +362,9 @@ func _build_railings() -> void:
 
 			var shape := CollisionShape3D.new()
 			var box := BoxShape3D.new()
-			box.size = Vector3(RAILING_THICKNESS, RAILING_HEIGHT, dist)
+			# Extend each segment slightly (+1m) so adjacent boxes overlap at corners
+			# — eliminates wedge-shaped gaps where direction changes between segments
+			box.size = Vector3(RAILING_THICKNESS, RAILING_HEIGHT, dist + 1.0)
 			shape.shape = box
 			shape.position = rail_pos
 			shape.rotation.y = angle
