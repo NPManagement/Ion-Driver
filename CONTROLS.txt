@@ -1,0 +1,40 @@
+   Dddaaaaaaaaada sION DRIVER — Controls Reference
+================================
+
+KEYBOARD
+--------
+W / Up Arrow    — Accelerate
+S / Down Arrow  — Brake / Reverse
+A / Left Arrow  — Steer Left
+D / Right Arrow — Steer Right
+Space           — Ion Boost (hold)
+Q / LMB         — Air Bank Left   (sharp left corner assist)
+E / RMB         — Air Bank Right  (sharp right corner assist)
+Shift           — Under Boost     (lateral thrust while banking)
+Escape          — Pause
+
+GAMEPAD (Xbox/PS layout)
+------------------------
+Right Trigger   — Accelerate
+Left Trigger    — Brake
+Left Stick      — Steer
+A / Cross       — Ion Boost
+LB / L1         — Air Brake Left
+RB / R1         — Air Brake Right
+Start / Options — Pause
+
+HOW TO OPEN IN GODOT
+---------------------
+1. Launch Godot_v4.6.1-stable_win64.exe
+2. Click "Import"
+3. Navigate to Desktop → Ion Driver → project.godot
+4. Click "Import & Edit"
+5. Press F5 (Play) to run the game
+
+TIPS
+----
+- Hold Q/E or LMB/RMB air banks in combination with steering for sharper corners
+- Boost is most effective on long straights — save energy for them
+- Your shield regenerates after 3 seconds without damage
+- Boost energy refills automatically but depletes fast — manage it!
+- At high speed the camera FOV widens for an intense feel

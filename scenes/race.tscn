@@ -1,0 +1,95 @@
+[gd_scene load_steps=10 format=3 uid="uid://ionrace001"]
+
+[ext_resource type="Script"      path="res://scripts/race/race_scene.gd"      id="0_rs"]
+[ext_resource type="Script"      path="res://scripts/race/race_manager.gd"    id="1_rm"]
+[ext_resource type="Script"      path="res://scripts/track/track_generator.gd" id="2_tg"]
+[ext_resource type="Script"      path="res://scripts/race/waypoint_system.gd"  id="3_wp"]
+[ext_resource type="Script"      path="res://scripts/ui/hud.gd"                id="4_hud"]
+[ext_resource type="Environment" path="res://resources/default_environment.tres" id="5_env"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_race"]
+sky_top_color    = Color(0.005, 0.005, 0.025, 1)
+sky_horizon_color= Color(0.025, 0.025, 0.08,  1)
+sky_curve        = 0.08
+ground_bottom_color  = Color(0.002, 0.002, 0.005, 1)
+ground_horizon_color = Color(0.015, 0.015, 0.04,  1)
+
+[sub_resource type="Sky" id="Sky_race"]
+sky_material = SubResource("ProceduralSkyMaterial_race")
+
+[sub_resource type="Environment" id="Environment_race"]
+background_mode         = 2
+sky                     = SubResource("Sky_race")
+ambient_light_source    = 3
+ambient_light_color     = Color(0.05, 0.06, 0.14, 1)
+ambient_light_energy    = 0.12
+reflected_light_source  = 2
+tonemap_mode            = 2
+tonemap_exposure        = 1.3
+tonemap_white           = 6.0
+ssr_enabled             = true
+ssr_max_steps           = 128
+ssr_fade_in             = 0.15
+ssr_fade_out            = 2.0
+ssr_depth_tolerance     = 0.2
+ssao_enabled            = true
+ssao_radius             = 2.0
+ssao_intensity          = 3.0
+ssil_enabled            = true
+ssil_radius             = 6.0
+ssil_intensity          = 1.2
+glow_enabled            = true
+glow_normalized         = true
+glow_intensity          = 1.1
+glow_strength           = 1.5
+glow_bloom              = 0.18
+glow_blend_mode         = 2
+glow_hdr_threshold      = 0.8
+glow_levels/1           = true
+glow_levels/2           = true
+glow_levels/3           = true
+glow_levels/4           = true
+glow_levels/5           = true
+glow_levels/6           = true
+volumetric_fog_enabled  = true
+volumetric_fog_density  = 0.01
+volumetric_fog_albedo   = Color(0.02, 0.025, 0.06, 1)
+volumetric_fog_emission = Color(0.01, 0.01, 0.04, 1)
+volumetric_fog_emission_energy = 0.3
+adjustment_enabled      = true
+adjustment_brightness   = 1.0
+adjustment_contrast     = 1.18
+adjustment_saturation   = 1.3
+
+[node name="Race" type="Node3D"]
+script = ExtResource("0_rs")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_race")
+
+[node name="SunLight" type="DirectionalLight3D" parent="."]
+transform       = Transform3D(0.866, -0.354, 0.354, 0, 0.707, 0.707, -0.5, -0.612, 0.612, 0, 60, 0)
+light_color     = Color(0.4, 0.42, 0.6, 1)
+light_energy    = 0.4
+shadow_enabled  = true
+directional_shadow_mode = 2
+directional_shadow_max_distance = 400.0
+
+[node name="FillLight" type="DirectionalLight3D" parent="."]
+transform       = Transform3D(-0.866, -0.25, -0.433, 0, 0.866, -0.5, 0.5, -0.433, -0.75, 0, 40, 0)
+light_color     = Color(0.15, 0.2, 0.4, 1)
+light_energy    = 0.15
+shadow_enabled  = false
+
+[node name="TrackGenerator" type="Node3D" parent="."]
+script = ExtResource("2_tg")
+
+[node name="WaypointSystem" type="Node" parent="."]
+script = ExtResource("3_wp")
+
+[node name="RaceManager" type="Node" parent="."]
+script = ExtResource("1_rm")
+
+[node name="HUD" type="CanvasLayer" parent="."]
+script = ExtResource("4_hud")
+layer = 10

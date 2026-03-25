@@ -1,0 +1,19 @@
+[gd_scene format=3 uid="uid://ionmenu001"]
+
+[ext_resource type="Script" uid="uid://bipecpks36x1a" path="res://scripts/ui/main_menu.gd" id="1_menu"]
+[ext_resource type="Script" path="res://scripts/ui/menu_background.gd" id="2_bg"]
+
+[node name="MainMenu" type="Node3D"]
+script = ExtResource("2_bg")
+
+[node name="UILayer" type="CanvasLayer" parent="."]
+layer = 10
+
+[node name="MenuUI" type="Control" parent="UILayer"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_menu")

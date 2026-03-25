@@ -1,0 +1,19 @@
+[remap]
+
+importer="mp3"
+type="AudioStreamMP3"
+uid="uid://26xatb14c75c"
+path="res://.godot/imported/The Hidden Gems of Ambient Drum and Bass - Vic^ (128k) (mp3cut.net).mp3-63785770d794d892df1138f30e85ed1d.mp3str"
+
+[deps]
+
+source_file="res://audio/The Hidden Gems of Ambient Drum and Bass - Vic^ (128k) (mp3cut.net).mp3"
+dest_files=["res://.godot/imported/The Hidden Gems of Ambient Drum and Bass - Vic^ (128k) (mp3cut.net).mp3-63785770d794d892df1138f30e85ed1d.mp3str"]
+
+[params]
+
+loop=true
+loop_offset=0
+bpm=0
+beat_count=0
+bar_beats=4
