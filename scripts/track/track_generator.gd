@@ -563,7 +563,7 @@ func _build_spiral_ramp() -> void:
 	var arch_h      := 70.0
 
 	for side in [-1.0, 1.0]:
-		var post_pos := entry_pos + entry_right * side * (half_w - 15.0) + Vector3(0, arch_h * 0.5, 0)
+		var post_pos: Vector3 = entry_pos + entry_right * float(side) * (half_w - 15.0) + Vector3(0, arch_h * 0.5, 0)
 		var post_mi  := MeshInstance3D.new()
 		var post_bm  := BoxMesh.new()
 		post_bm.size        = Vector3(4.0, arch_h, 4.0)
