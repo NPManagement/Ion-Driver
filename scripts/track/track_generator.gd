@@ -39,7 +39,7 @@ const CURB_SIZE      = Vector3(4.0, 10.0, 5.5)  # Tall barrier blocks
 # ─── Railing collision walls ────────────────────────────────────────────────
 const RAILING_HEIGHT    := 5.0    # Metres tall — enough to block the vehicle
 const RAILING_THICKNESS := 3.0    # Metres thick — wide enough to prevent high-speed tunnelling
-const RAILING_LAYER     := 8      # Physics collision layer 4 (bitmask 8) — matches vehicle collision_mask
+const RAILING_LAYER     := 4      # Raycast-only layer — vehicle detects via lateral raycasts, not physics
 
 # ─── Track layout — massive flowing clockwise circuit ─────────────────────────
 # ~100km perimeter (Catmull-Rom measured). ONE straight. All turns sweeping

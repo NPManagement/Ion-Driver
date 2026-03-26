@@ -102,7 +102,7 @@ var _off_road: bool           = false
 var _off_road_penalty_cooldown: float = 0.0  # Prevents repeated instant penalties
 
 # ─── Railing collision ────────────────────────────────────────────────────────
-const RAILING_RAY_LAYER := 8      # Bitmask for layer 4 — matches RAILING_LAYER in track_generator
+const RAILING_RAY_LAYER := 4      # Matches RAILING_LAYER — raycasts detect wall, no physics collision
 const RAILING_RAY_COUNT := 6   # 3 per side (front, mid, rear)
 const RAILING_RAY_REACH := 5.0 # How far sideways the rays extend
 var _railing_sparks: GPUParticles3D        # Reusable spark emitter (reparented to contact)
