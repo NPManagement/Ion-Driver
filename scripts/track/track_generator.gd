@@ -285,10 +285,8 @@ func _build_plane() -> void:
 	body.add_child(col)
 
 # ─── Railing walls — solid collision barriers along both track edges ──────────
-# Uses the hi-res road points (_hires_pts) so railings follow the same smooth
-# curve as the road surface — coarse waypoints cut corners on tight turns.
-# One StaticBody3D per chunk per side. Visual neon-lit batched boxes.
-# Collision on layer 4, detected by vehicle lateral raycasts.
+# One continuous wall mesh + ConcavePolygonShape3D per chunk per side.
+# No gaps — vertices are shared between adjacent segments forming a sealed strip.
 func _build_railings() -> void:
 	var pts    := _hires_pts
 	var banks  := _hires_banks
@@ -297,100 +295,131 @@ func _build_railings() -> void:
 	if n < 2:
 		return
 
-	var edge_dist := EDGE_OFFSET + 3.0  # Just outside the painted edge line
-	var rail_mat := _neon_mat(Color(1.0, 0.5, 0.15), 30.0)       # Warm orange glow
-	var rail_dark_mat := _neon_mat(Color(0.4, 0.25, 0.1), 8.0)   # Dim orange segments
-	var post_mat := _neon_mat(Color(0.9, 0.6, 0.2), 50.0)        # Bright post accents
+	var edge_dist := EDGE_OFFSET + 3.0
+	var rail_mat  := _neon_mat(Color(1.0, 0.5, 0.15), 30.0)
+	rail_mat.cull_mode = BaseMaterial3D.CULL_DISABLED  # Visible from both sides
+	var post_mat  := _neon_mat(Color(0.9, 0.6, 0.2), 50.0)
+	var half_t    := RAILING_THICKNESS * 0.5
 
-	# Collision bodies keyed by chunk_id → {left: StaticBody3D, right: StaticBody3D}
-	var chunk_bodies: Dictionary = {}
-
-	# Map hi-res index → chunk: use nearest coarse waypoint for chunk assignment
-	var wp_count := waypoints.size()
+	var wp_count     := waypoints.size()
 	var hires_per_wp := maxi(1, n / maxi(1, wp_count))
 
-	for i in n:
-		var a: Vector3 = pts[i]
-		var b: Vector3 = pts[(i + 1) % n]
-		var seg := b - a
-		var dist := seg.length()
-		if dist < 0.1:
-			continue
+	for side in [-1, 1]:
+		var sf := float(side)
 
-		var fwd   := seg.normalized()
-		var right: Vector3 = rights[i] if i < rights.size() else fwd.cross(Vector3.UP).normalized()
-		if right.length_squared() < 0.001:
-			right = fwd.cross(Vector3.UP).normalized()
-		var angle := atan2(fwd.x, fwd.z)
-		var mid   := (a + b) * 0.5
+		# ── Pre-compute edge + inner/outer positions for every point ─────
+		var edge_pt  := PackedVector3Array()
+		var inner_pt := PackedVector3Array()
+		var outer_pt := PackedVector3Array()
+		var base_y   := PackedFloat32Array()
+		edge_pt.resize(n);  inner_pt.resize(n)
+		outer_pt.resize(n); base_y.resize(n)
 
-		# Map to coarse waypoint index for chunk assignment
-		var wp_idx := clampi(i / hires_per_wp, 0, wp_count - 1)
-		var chunk := _chunk_for(wp_idx)
-		var cid   := clampi(wp_idx / CHUNK_SIZE, 0, _chunks.size() - 1)
+		for i in n:
+			var ri: Vector3 = rights[i] if i < rights.size() else Vector3.RIGHT
+			var bank_deg: float = banks[i] if i < banks.size() else 0.0
+			var bh := tan(deg_to_rad(bank_deg)) * edge_dist
+			base_y[i]  = 0.02 - bh * sf
+			edge_pt[i] = pts[i] + ri * sf * edge_dist
+			# Thickness offset toward track centre
+			var to_ctr := pts[i] - edge_pt[i]
+			to_ctr.y = 0.0
+			var d := to_ctr.length()
+			if d > 0.01:
+				to_ctr /= d
+			else:
+				to_ctr = Vector3.RIGHT
+			inner_pt[i] = edge_pt[i] + to_ctr * half_t
+			outer_pt[i] = edge_pt[i] - to_ctr * half_t
 
-		# Banking
-		var bank_a: float = banks[i] if i < banks.size() else 0.0
-		var bank_b: float = banks[(i + 1) % n] if (i + 1) % n < banks.size() else 0.0
-		var bank := (bank_a + bank_b) * 0.5
+		# ── Build wall mesh + collision per chunk ────────────────────────
+		var chunk_st:    Dictionary = {}   # cid → SurfaceTool
+		var chunk_faces: Dictionary = {}   # cid → Array[Vector3] (collision tris)
+		var chunk_sb:    Dictionary = {}   # cid → StaticBody3D
 
-		# Ensure chunk collision bodies exist
-		if not chunk_bodies.has(cid):
-			var bodies := {}
-			for side_name in ["left", "right"]:
+		for i in n:
+			var ni := (i + 1) % n
+			if edge_pt[i].distance_squared_to(edge_pt[ni]) < 0.01:
+				continue
+
+			var wp_idx := clampi(i / hires_per_wp, 0, wp_count - 1)
+			var cid    := clampi(wp_idx / CHUNK_SIZE, 0, _chunks.size() - 1)
+
+			if not chunk_st.has(cid):
+				var st := SurfaceTool.new()
+				st.begin(Mesh.PRIMITIVE_TRIANGLES)
+				chunk_st[cid]    = st
+				chunk_faces[cid] = []
 				var sb := StaticBody3D.new()
 				sb.collision_layer = RAILING_LAYER
-				sb.collision_mask  = 2   # Detect vehicle (layer 2) for solid collision
-				chunk.add_child(sb)
-				bodies[side_name] = sb
-			chunk_bodies[cid] = bodies
+				sb.collision_mask  = 2
+				chunk_sb[cid] = sb
 
-		# Visual neon pattern
-		var is_bright := (i % 6) < 2
-		var seg_mat := rail_mat if is_bright else rail_dark_mat
+			var st: SurfaceTool = chunk_st[cid]
+			var faces: Array     = chunk_faces[cid]
+			var by_i: float = base_y[i]
+			var by_n: float = base_y[ni]
 
-		for side in [-1, 1]:
-			var sf := float(side)
-			var side_name := "left" if side == -1 else "right"
-			var bank_h := tan(deg_to_rad(bank)) * edge_dist
-			var side_h: float = -bank_h * sf
-			var rail_base_y: float = 0.02 + side_h
+			# 8 vertices — 4 at current point, 4 at next point
+			var ib  := inner_pt[i]  + Vector3(0, by_i, 0)
+			var it  := inner_pt[i]  + Vector3(0, by_i + RAILING_HEIGHT, 0)
+			var ob  := outer_pt[i]  + Vector3(0, by_i, 0)
+			var ot  := outer_pt[i]  + Vector3(0, by_i + RAILING_HEIGHT, 0)
+			var ib2 := inner_pt[ni] + Vector3(0, by_n, 0)
+			var it2 := inner_pt[ni] + Vector3(0, by_n + RAILING_HEIGHT, 0)
+			var ob2 := outer_pt[ni] + Vector3(0, by_n, 0)
+			var ot2 := outer_pt[ni] + Vector3(0, by_n + RAILING_HEIGHT, 0)
 
-			# Compute edge positions at both endpoints using each point's own
-			# right vector so adjacent segments share exact edge positions — no
-			# gaps on curves regardless of edge_dist or turn sharpness.
-			var right_b: Vector3 = rights[(i + 1) % n] if (i + 1) % n < rights.size() else right
-			if right_b.length_squared() < 0.001:
-				right_b = right
-			var edge_a: Vector3 = a + right * sf * edge_dist
-			var edge_b: Vector3 = b + right_b * sf * edge_dist
-			var edge_mid := (edge_a + edge_b) * 0.5
-			var edge_seg := edge_b - edge_a
-			var edge_len := edge_seg.length()
-			if edge_len < 0.01:
-				continue
-			var edge_angle := atan2(edge_seg.x, edge_seg.z)
-			var rail_pos: Vector3 = edge_mid + Vector3(0, RAILING_HEIGHT * 0.5 + rail_base_y, 0)
+			# Inner face (toward track)
+			st.add_vertex(ib);  st.add_vertex(ib2); st.add_vertex(it2)
+			st.add_vertex(ib);  st.add_vertex(it2); st.add_vertex(it)
+			faces.append(ib);   faces.append(ib2);  faces.append(it2)
+			faces.append(ib);   faces.append(it2);  faces.append(it)
+			# Outer face (away from track)
+			st.add_vertex(ob);  st.add_vertex(ot);  st.add_vertex(ot2)
+			st.add_vertex(ob);  st.add_vertex(ot2); st.add_vertex(ob2)
+			faces.append(ob);   faces.append(ot);   faces.append(ot2)
+			faces.append(ob);   faces.append(ot2);  faces.append(ob2)
+			# Top cap
+			st.add_vertex(it);  st.add_vertex(it2); st.add_vertex(ot2)
+			st.add_vertex(it);  st.add_vertex(ot2); st.add_vertex(ot)
+			faces.append(it);   faces.append(it2);  faces.append(ot2)
+			faces.append(it);   faces.append(ot2);  faces.append(ot)
 
-			_batch_box(rail_pos, Vector3(RAILING_THICKNESS, RAILING_HEIGHT, edge_len),
-				Vector3(0, edge_angle, 0), seg_mat, chunk)
+		# ── Finalize: one MeshInstance3D + one ConcavePolygonShape3D per chunk
+		for cid in chunk_st:
+			var chunk := _chunks[cid]
+			var st: SurfaceTool = chunk_st[cid]
+			st.generate_normals()
+			var mi := MeshInstance3D.new()
+			mi.mesh = st.commit()
+			mi.material_override = rail_mat
+			chunk.add_child(mi)
 
-			var shape := CollisionShape3D.new()
-			var box := BoxShape3D.new()
-			box.size = Vector3(RAILING_THICKNESS, RAILING_HEIGHT, edge_len + 1.0)
-			shape.shape = box
-			shape.position = rail_pos
-			shape.rotation.y = edge_angle
-			chunk_bodies[cid][side_name].add_child(shape)
+			var concave := ConcavePolygonShape3D.new()
+			concave.set_faces(PackedVector3Array(chunk_faces[cid]))
+			concave.backface_collision = true
+			var col := CollisionShape3D.new()
+			col.shape = concave
+			var sb: StaticBody3D = chunk_sb[cid]
+			sb.add_child(col)
+			chunk.add_child(sb)
 
-		# Post accent every ~40m (every 8th hi-res segment ≈ 40m)
-		if i % 8 == 0:
-			for side in [-1, 1]:
-				var sf2 := float(side)
-				var bank_h2 := tan(deg_to_rad(bank)) * edge_dist
-				var ph: float = -bank_h2 * sf2
-				var post_pos: Vector3 = a + right * sf2 * edge_dist + Vector3(0, RAILING_HEIGHT + 0.02 + ph, 0)
-				_batch_box(post_pos, Vector3(0.6, 1.2, 0.6), Vector3.ZERO, post_mat, chunk)
+	# ── Post accents — decorative boxes every ~40m ───────────────────────────
+	for i in n:
+		if i % 8 != 0:
+			continue
+		var a: Vector3 = pts[i]
+		var ri: Vector3 = rights[i] if i < rights.size() else Vector3.RIGHT
+		var bank_deg: float = banks[i] if i < banks.size() else 0.0
+		var wp_idx := clampi(i / hires_per_wp, 0, wp_count - 1)
+		var chunk  := _chunk_for(wp_idx)
+		for s in [-1, 1]:
+			var sf2 := float(s)
+			var bh2 := tan(deg_to_rad(bank_deg)) * edge_dist
+			var ph: float = -bh2 * sf2
+			var post_pos: Vector3 = a + ri * sf2 * edge_dist + Vector3(0, RAILING_HEIGHT + 0.02 + ph, 0)
+			_batch_box(post_pos, Vector3(0.6, 1.2, 0.6), Vector3.ZERO, post_mat, chunk)
 
 # ─── Hi-res road point set — shared by road mesh and railings ─────────────────
 # Test track: ~5m vertex spacing for smooth curves. Main track: uses waypoints.
