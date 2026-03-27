@@ -38,7 +38,7 @@ const CURB_BLOCK_LEN = 5.5     # Length of each barrier block along track
 const CURB_SIZE      = Vector3(4.0, 10.0, 5.5)  # Tall barrier blocks
 
 # ─── Railing collision walls ────────────────────────────────────────────────
-const RAILING_HEIGHT    := 5.0    # Metres tall — enough to block the vehicle
+const RAILING_HEIGHT    := 10.0   # Metres tall — enough to block the vehicle
 const RAILING_THICKNESS := 3.0    # Metres thick — wide enough to prevent high-speed tunnelling
 const RAILING_LAYER     := 4      # Raycast-only layer — vehicle detects via lateral raycasts, not physics
 
