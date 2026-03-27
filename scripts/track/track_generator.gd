@@ -1108,7 +1108,7 @@ func _build_test_chevrons(n: int) -> void:
 	var lat_step := 12.0
 	var rows := 7
 	var mid_row := 3
-	var hover_above_road := 15.0   # clearance above road surface
+	var hover_above_road := 50.0   # clearance above road surface
 
 	for ti in turn_entries:
 		# 5 groups per turn: 3 leading in, 1 at entry, 1 through
@@ -1123,7 +1123,7 @@ func _build_test_chevrons(n: int) -> void:
 			var bank_deg: float = _bank_angles[wi] if wi < _bank_angles.size() else 0.0
 			var bank_rad := deg_to_rad(bank_deg)
 			var flat_right := fwd.cross(Vector3.UP).normalized()
-			var banked_right := flat_right.rotated(fwd, -bank_rad)
+			var banked_right := flat_right.rotated(fwd, bank_rad)
 			var banked_up := banked_right.cross(fwd).normalized()
 
 			# Euler angles from the banked basis (for _batch_box)
@@ -1470,6 +1470,7 @@ func _init_shared_materials() -> void:
 	_chevron_mat_blue.shader = chevron_shader
 	_chevron_mat_blue.set_shader_parameter("base_color", Vector3(0.3, 0.7, 1.0))
 	_chevron_mat_blue.set_shader_parameter("speed", 3.0)
+	_chevron_mat_blue.set_shader_parameter("emission_strength", 30.0)
 
 func _neon_mat(color: Color, energy: float) -> StandardMaterial3D:
 	# Quantize energy to reduce unique materials
