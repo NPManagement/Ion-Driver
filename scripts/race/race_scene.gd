@@ -67,22 +67,13 @@ func _build_world_environment() -> void:
 	add_child(env_node)
 
 func _build_lighting() -> void:
-	# Dim moonlight — just enough to see silhouettes, neons provide real lighting
-	var sun := DirectionalLight3D.new()
-	sun.light_color             = Color(0.3, 0.35, 0.6)
-	sun.light_energy            = 0.12
-	sun.shadow_enabled          = true
-	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
-	sun.rotation_degrees        = Vector3(-48.0, 28.0, 0.0)
-	add_child(sun)
-
-	# Very faint fill — just barely separates ships from darkness
-	var fill := DirectionalLight3D.new()
-	fill.light_color    = Color(0.4, 0.3, 0.2)
-	fill.light_energy   = 0.05
-	fill.shadow_enabled = false
-	fill.rotation_degrees = Vector3(-22.0, -145.0, 0.0)
-	add_child(fill)
+	# Very faint moonlight — barely visible, neons provide all real lighting
+	var moon := DirectionalLight3D.new()
+	moon.light_color             = Color(0.15, 0.18, 0.35)
+	moon.light_energy            = 0.03
+	moon.shadow_enabled          = false
+	moon.rotation_degrees        = Vector3(-60.0, 45.0, 0.0)
+	add_child(moon)
 
 	race_mgr.countdown_tick.connect(hud.show_countdown)
 	race_mgr.lap_completed.connect(_on_lap_completed)

@@ -59,19 +59,13 @@ func _build_environment() -> void:
 	add_child(env_node)
 
 func _build_lighting() -> void:
-	var sun := DirectionalLight3D.new()
-	sun.light_color      = Color(0.62, 0.74, 1.0)
-	sun.light_energy     = 0.8
-	sun.shadow_enabled   = true
-	sun.rotation_degrees = Vector3(-48.0, 28.0, 0.0)
-	add_child(sun)
-
-	var fill := DirectionalLight3D.new()
-	fill.light_color      = Color(0.85, 0.55, 0.28)
-	fill.light_energy     = 0.15
-	fill.shadow_enabled   = false
-	fill.rotation_degrees = Vector3(-22.0, -145.0, 0.0)
-	add_child(fill)
+	# Very faint moonlight — barely visible, neons provide all real lighting
+	var moon := DirectionalLight3D.new()
+	moon.light_color      = Color(0.15, 0.18, 0.35)
+	moon.light_energy     = 0.03
+	moon.shadow_enabled   = false
+	moon.rotation_degrees = Vector3(-60.0, 45.0, 0.0)
+	add_child(moon)
 
 # ─── Ground platform ─────────────────────────────────────────────────────────
 func _build_ground() -> void:
