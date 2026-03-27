@@ -59,13 +59,8 @@ func _build_environment() -> void:
 	add_child(env_node)
 
 func _build_lighting() -> void:
-	# Very faint moonlight — barely visible, neons provide all real lighting
-	var moon := DirectionalLight3D.new()
-	moon.light_color      = Color(0.15, 0.18, 0.35)
-	moon.light_energy     = 0.03
-	moon.shadow_enabled   = false
-	moon.rotation_degrees = Vector3(-60.0, 45.0, 0.0)
-	add_child(moon)
+	# No sun/moon — all lighting comes from track neons
+	pass
 
 # ─── Ground platform ─────────────────────────────────────────────────────────
 func _build_ground() -> void:
