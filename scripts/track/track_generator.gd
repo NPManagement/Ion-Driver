@@ -1081,13 +1081,12 @@ func _build_turn_arrows(n: int, mat: ShaderMaterial = null, glow_col: Color = Co
 		glow.position = center
 		chunk.add_child(glow)
 
-# ─── Blue animated >>> chevrons on test track — placed on road before & through turns ─
+# ─── Blue animated >>> chevrons on test track — on road surface before & through turns ─
 func _build_test_chevrons(n: int) -> void:
-	# Wider look window to catch the test track's gentle sweeping curves
 	var look := 20
-	var last_placed := -60   # min waypoint spacing between chevron groups
+	var last_placed := -60
 
-	# First pass — find every turn entry index
+	# First pass — find every turn entry waypoint index
 	var turn_entries: Array[int] = []
 	for i in range(0, n, 2):
 		var behind: Vector3 = waypoints[(i - look + n) % n]
@@ -1103,76 +1102,75 @@ func _build_test_chevrons(n: int) -> void:
 		last_placed = i
 		turn_entries.append(i)
 
-	# Second pass — for each turn, place chevron sets leading in and through
-	var block_w := 12.0
-	var block_h := 6.0
-	var block_d := 3.0
-	var step    := 10.0   # lateral step per row toward tip
-	var rows    := 7
+	var block_w := 14.0
+	var block_h := 7.0
+	var block_d := 3.5
+	var lat_step := 12.0
+	var rows := 7
 	var mid_row := 3
+	var hover_above_road := 15.0   # clearance above road surface
 
 	for ti in turn_entries:
-		# Place 5 groups: 3 before the turn, 1 at entry, 1 into the turn
+		# 5 groups per turn: 3 leading in, 1 at entry, 1 through
 		for g in range(5):
-			var wp_offset := (g - 3) * 15   # -45, -30, -15, 0, +15 waypoints from turn
+			var wp_offset := (g - 3) * 15
 			var wi: int = (ti + wp_offset + n) % n
 			var cur: Vector3 = waypoints[wi]
 			var nxt: Vector3 = waypoints[(wi + 1) % n]
 			var fwd := (nxt - cur).normalized()
-			var face_angle := atan2(fwd.x, fwd.z)
 
-			# Banking angle from the road at this waypoint
+			# Build banked road basis
 			var bank_deg: float = _bank_angles[wi] if wi < _bank_angles.size() else 0.0
 			var bank_rad := deg_to_rad(bank_deg)
+			var flat_right := fwd.cross(Vector3.UP).normalized()
+			var banked_right := flat_right.rotated(fwd, -bank_rad)
+			var banked_up := banked_right.cross(fwd).normalized()
 
-			# Determine turn direction from cross product
+			# Euler angles from the banked basis (for _batch_box)
+			var road_basis := Basis(banked_right, banked_up, -fwd)
+			var euler := road_basis.get_euler()
+
+			# Turn direction
 			var prev: Vector3 = waypoints[(wi - look + n) % n]
 			var ahed: Vector3 = waypoints[(wi + look) % n]
 			var di := (cur - prev).normalized()
 			var do_ := (ahed - cur).normalized()
 			var cross_y := di.cross(do_).y
-			var turn_right := cross_y < 0.0
-			var turn_sign := -1.0 if turn_right else 1.0
+			var turn_sign := 1.0 if cross_y < 0.0 else -1.0
 
-			# Position: on the road surface, slightly above
-			var center: Vector3 = cur + Vector3(0, 5.0, 0)
-
+			# Center: above the road surface along the banked up direction
+			var center: Vector3 = cur + banked_up * hover_above_road
 			var chunk := _chunk_for(wi)
 
 			for chev in range(3):
 				var phase := float(chev) / 3.0
-				# Space three > along the turn direction
-				var chev_lateral := turn_sign * (float(chev) - 1.0) * 40.0
-				var chev_center: Vector3 = center \
-					+ Vector3(chev_lateral, 0, 0).rotated(Vector3.UP, face_angle)
+				# Space three chevrons laterally in turn direction
+				var chev_offset: Vector3 = banked_right * turn_sign * (float(chev) - 1.0) * 45.0
+				var chev_center: Vector3 = center + chev_offset
 
 				for row in rows:
 					var dist_from_tip := absi(row - mid_row)
-					var row_lateral := turn_sign * float(mid_row - dist_from_tip) * step
-					var row_y := float(mid_row - row) * block_h
+					# Lateral: tip points in turn direction
+					var row_lat := turn_sign * float(mid_row - dist_from_tip) * lat_step
+					# Vertical in road space
+					var row_vert := float(mid_row - row) * block_h
 
-					var offset := Vector3(row_lateral, row_y, 0)
-					# Rotate by heading, then apply banking tilt
-					offset = offset.rotated(Vector3.UP, face_angle)
-					var right_dir := Vector3(-sin(face_angle), 0, cos(face_angle))
-					offset = offset.rotated(right_dir.normalized(), -bank_rad)
-
-					var block_pos: Vector3 = chev_center + offset
-					# Euler rotation: yaw + roll for banking
+					var block_pos: Vector3 = chev_center \
+						+ banked_right * row_lat \
+						+ banked_up * row_vert
 					_batch_box(block_pos, Vector3(block_w, block_h, block_d),
-						Vector3(bank_rad, face_angle, 0),
-						_chevron_mat_blue, chunk, 0.0,
+						euler, _chevron_mat_blue, chunk, 0.0,
 						Color(phase, 0, 0, 0))
 
-			# Blue glow at each group
+			# Neon blue glow
 			var glow := OmniLight3D.new()
-			glow.light_color = Color(0.2, 0.6, 1.0)
-			glow.light_energy = 40.0
-			glow.omni_range = 250.0
+			glow.light_color = Color(0.15, 0.5, 1.0)
+			glow.light_energy = 80.0
+			glow.omni_range = 400.0
 			glow.shadow_enabled = false
 			glow.distance_fade_enabled = true
-			glow.distance_fade_begin = 4800.0
-			glow.distance_fade_length = 400.0
+			glow.distance_fade_begin = 6000.0
+			glow.distance_fade_length = 500.0
 			glow.position = center
 			chunk.add_child(glow)
 
@@ -1470,8 +1468,8 @@ func _init_shared_materials() -> void:
 
 	_chevron_mat_blue = ShaderMaterial.new()
 	_chevron_mat_blue.shader = chevron_shader
-	_chevron_mat_blue.set_shader_parameter("base_color", Vector3(0.2, 0.6, 1.0))
-	_chevron_mat_blue.set_shader_parameter("speed", 2.5)
+	_chevron_mat_blue.set_shader_parameter("base_color", Vector3(0.3, 0.7, 1.0))
+	_chevron_mat_blue.set_shader_parameter("speed", 3.0)
 
 func _neon_mat(color: Color, energy: float) -> StandardMaterial3D:
 	# Quantize energy to reduce unique materials
