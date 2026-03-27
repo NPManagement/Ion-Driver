@@ -767,7 +767,6 @@ func _build_track() -> void:
 			_build_test_edge_strips(a, b, warm_amber, i)
 		_build_corner_signs(n)
 		_build_turn_arrows(n)
-		_build_bank_markers(n)
 	else:
 		for i in n:
 			var a := waypoints[i]
@@ -1068,9 +1067,9 @@ func _build_turn_arrows(n: int) -> void:
 					Vector3(0, face_angle, 0), _chevron_mat, chunk, 0.0,
 					Color(phase, 0, 0, 0))
 
-		# Pink glow
+		# Blue glow
 		var glow := OmniLight3D.new()
-		glow.light_color = Color(1.0, 0.0, 0.6)
+		glow.light_color = Color(0.2, 0.6, 1.0)
 		glow.light_energy = 50.0
 		glow.omni_range = 300.0
 		glow.shadow_enabled = false
@@ -1369,7 +1368,7 @@ func _init_shared_materials() -> void:
 	var chevron_shader := load("res://shaders/chevron_chase.gdshader") as Shader
 	_chevron_mat = ShaderMaterial.new()
 	_chevron_mat.shader = chevron_shader
-	_chevron_mat.set_shader_parameter("base_color", Vector3(1.0, 0.0, 0.6))
+	_chevron_mat.set_shader_parameter("base_color", Vector3(0.2, 0.6, 1.0))
 	_chevron_mat.set_shader_parameter("speed", 2.5)
 
 func _neon_mat(color: Color, energy: float) -> StandardMaterial3D:
