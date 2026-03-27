@@ -16,6 +16,7 @@ var _building_body_mat: StandardMaterial3D
 var _pole_mat: StandardMaterial3D
 var _dark_curb_mat: StandardMaterial3D
 var _chevron_mat: ShaderMaterial
+var _chevron_mat_blue: ShaderMaterial
 var _building_count: int = 0
 var _pylon_accum_dist: float = 0.0  # Distance since last edge pylon (keeps ~500m spacing)
 var _lit_section_dist: float = 0.0   # Distance since last lit barrier section (~100m spacing)
@@ -766,7 +767,7 @@ func _build_track() -> void:
 			var b := waypoints[(i + 1) % n]
 			_build_test_edge_strips(a, b, warm_amber, i)
 		_build_corner_signs(n)
-		_build_turn_arrows(n)
+		_build_turn_arrows(n, _chevron_mat_blue, Color(0.2, 0.6, 1.0))
 	else:
 		for i in n:
 			var a := waypoints[i]
@@ -1004,7 +1005,9 @@ func _build_curbs(a: Vector3, b: Vector3, color: Color, idx: int) -> void:
 				_batch_box(cpos, CURB_SIZE, Vector3(0, angle, 0), _dark_curb_mat, chunk)
 
 # ─── Massive neon >>> hovering above the track BEFORE each corner ─────────────
-func _build_turn_arrows(n: int) -> void:
+func _build_turn_arrows(n: int, mat: ShaderMaterial = null, glow_col: Color = Color(1.0, 0.0, 0.6)) -> void:
+	if mat == null:
+		mat = _chevron_mat
 	var look := 6
 	var last_corner := -30
 	for i in range(0, n, 2):
@@ -1064,12 +1067,11 @@ func _build_turn_arrows(n: int) -> void:
 				var block_pos: Vector3 = chev_center \
 					+ Vector3(row_lateral, row_y, 0).rotated(Vector3.UP, face_angle)
 				_batch_box(block_pos, Vector3(block_w, block_h, block_d),
-					Vector3(0, face_angle, 0), _chevron_mat, chunk, 0.0,
+					Vector3(0, face_angle, 0), mat, chunk, 0.0,
 					Color(phase, 0, 0, 0))
 
-		# Blue glow
 		var glow := OmniLight3D.new()
-		glow.light_color = Color(0.2, 0.6, 1.0)
+		glow.light_color = glow_col
 		glow.light_energy = 50.0
 		glow.omni_range = 300.0
 		glow.shadow_enabled = false
@@ -1368,8 +1370,13 @@ func _init_shared_materials() -> void:
 	var chevron_shader := load("res://shaders/chevron_chase.gdshader") as Shader
 	_chevron_mat = ShaderMaterial.new()
 	_chevron_mat.shader = chevron_shader
-	_chevron_mat.set_shader_parameter("base_color", Vector3(0.2, 0.6, 1.0))
+	_chevron_mat.set_shader_parameter("base_color", Vector3(1.0, 0.0, 0.6))
 	_chevron_mat.set_shader_parameter("speed", 2.5)
+
+	_chevron_mat_blue = ShaderMaterial.new()
+	_chevron_mat_blue.shader = chevron_shader
+	_chevron_mat_blue.set_shader_parameter("base_color", Vector3(0.2, 0.6, 1.0))
+	_chevron_mat_blue.set_shader_parameter("speed", 2.5)
 
 func _neon_mat(color: Color, energy: float) -> StandardMaterial3D:
 	# Quantize energy to reduce unique materials
