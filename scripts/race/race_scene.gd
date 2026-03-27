@@ -26,25 +26,21 @@ func _build_world_environment() -> void:
 	var env_node := WorldEnvironment.new()
 	var env      := Environment.new()
 
-	# Deep space night sky
+	# Pure black sky
 	env.background_mode  = Environment.BG_COLOR
-	env.background_color = Color(0.004, 0.007, 0.016)
+	env.background_color = Color(0, 0, 0)
 
-	# Minimal ambient — let the neon lights do the work
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color  = Color(0.03, 0.04, 0.10)
-	env.ambient_light_energy = 0.15
+	# No ambient light — only neons illuminate
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_BG
+	env.ambient_light_energy = 0.0
 
-	# Atmospheric fog — blue depth haze, starts 120m out
-	env.fog_enabled      = true
-	env.fog_density      = 0.0028
-	env.fog_light_color  = Color(0.04, 0.09, 0.26)
-	env.fog_sun_scatter  = 0.0
+	# No fog
+	env.fog_enabled      = false
 
-	# Tone mapping — CRITICAL: without this, all lights above 1.0 look identical
+	# Tone mapping
 	env.tonemap_mode     = 2  # Filmic
-	env.tonemap_exposure = 1.8   # Brighter overall
-	env.tonemap_white    = 16.0  # High white point — lets bright lights actually look bright
+	env.tonemap_exposure = 1.0
+	env.tonemap_white    = 16.0
 
 	# Glow — makes every emissive neon surface actually bloom on screen
 	env.glow_enabled    = true
@@ -52,16 +48,13 @@ func _build_world_environment() -> void:
 	env.glow_intensity  = 1.5
 	env.glow_bloom      = 0.35
 	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
-	env.glow_hdr_threshold = 0.6  # Lower threshold — more things glow
+	env.glow_hdr_threshold = 0.6
 	var gl := [0.5, 0.8, 1.0, 0.9, 0.6, 0.3, 0.1]
 	for i in gl.size():
 		env.set_glow_level(i, gl[i])
 
-	# Contrast/brightness boost
-	env.adjustment_enabled    = true
-	env.adjustment_brightness = 1.0
-	env.adjustment_contrast   = 1.2
-	env.adjustment_saturation = 1.3
+	# No brightness/contrast boost
+	env.adjustment_enabled    = false
 
 	env_node.environment = env
 	add_child(env_node)
