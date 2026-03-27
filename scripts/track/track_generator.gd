@@ -18,7 +18,6 @@ var _dark_curb_mat: StandardMaterial3D
 var _chevron_mat: ShaderMaterial
 var _building_count: int = 0
 var _pylon_accum_dist: float = 0.0  # Distance since last edge pylon (keeps ~500m spacing)
-var _lit_section_dist: float = 0.0   # Distance since last lit edge section (~100m spacing)
 
 # ─── Chunk-based visibility system ───────────────────────────────────────────
 const CHUNK_SIZE := 10            # Waypoints per chunk
@@ -698,7 +697,6 @@ func _build_track() -> void:
 	if GameManager.selected_track != 0:
 		# Test track — no barrier walls, just wide painted edge strips + markers
 		_pylon_accum_dist = 0.0  # Reset so pylons stay ~500m apart regardless of subdivision count
-		_lit_section_dist = 0.0   # Reset for ~100m dark / 5m lit pattern
 		for i in n:
 			var a := waypoints[i]
 			var b := waypoints[(i + 1) % n]
@@ -727,44 +725,22 @@ func _build_test_edge_strips(a: Vector3, b: Vector3, color: Color, idx: int) -> 
 	var angle := atan2(fwd.x, fwd.z)
 	var chunk := _chunk_for(idx)
 
-	# Edge strips: 5m lit sections every ~100m, rest is dark
-	var stripe_len := 5.0
+	# Two flat neon strips — one each side at EDGE_OFFSET
+	# Alternating white/amber blocks like a runway marking
+	var stripe_len := 20.0
 	var count := ceili(dist / stripe_len)
 	for j in count:
 		var t := (float(j) + 0.5) * stripe_len / dist
 		if t > 1.0:
 			break
 		var pos := a.lerp(b, t)
-
-		# Accumulate distance — lit section every ~100m
-		_lit_section_dist += stripe_len
-		var is_bright := false
-		if _lit_section_dist >= 100.0:
-			is_bright = true
-			_lit_section_dist -= 100.0  # Reset for next cycle (100m dark + 5m lit = 105m total)
-
+		var is_bright := (j + idx) % 4 < 2   # 2 on / 2 off pattern
 		var strip_col := color if is_bright else Color(1.0, 1.0, 1.0)
 		var strip_mat := _neon_mat(strip_col, 60.0 if is_bright else 30.0)
 
 		for side in [-1, 1]:
 			var sp: Vector3 = pos + right * side * (EDGE_OFFSET + 1.0) + Vector3(0, 0.05, 0)
 			_batch_box(sp, Vector3(4.0, 0.12, stripe_len * 0.9), Vector3(0, angle, 0), strip_mat, chunk)
-
-		# Add light to lit edge sections (illuminates the track edge)
-		if is_bright:
-			for side in [-1, 1]:
-				var light_pos: Vector3 = pos + right * side * (EDGE_OFFSET + 1.0) + Vector3(0, 2.0, 0)
-				var strip_light := OmniLight3D.new()
-				strip_light.light_color     = color
-				strip_light.light_energy    = 375.0
-				strip_light.omni_range      = 200.0
-				strip_light.omni_attenuation = 1.0
-				strip_light.shadow_enabled  = false
-				strip_light.distance_fade_enabled = true
-				strip_light.distance_fade_begin   = 4800.0
-				strip_light.distance_fade_length  = 400.0
-				strip_light.position = light_pos
-				chunk.add_child(strip_light)
 
 		# Every ~500m place a tall pylon — use accumulated distance so spacing
 		# stays constant regardless of how many subdivisions the mesh uses.
