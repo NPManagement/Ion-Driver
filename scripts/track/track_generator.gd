@@ -18,6 +18,7 @@ var _dark_curb_mat: StandardMaterial3D
 var _chevron_mat: ShaderMaterial
 var _building_count: int = 0
 var _pylon_accum_dist: float = 0.0  # Distance since last edge pylon (keeps ~500m spacing)
+var _lit_section_dist: float = 0.0   # Distance since last lit barrier section (~100m spacing)
 
 # ─── Chunk-based visibility system ───────────────────────────────────────────
 const CHUNK_SIZE := 10            # Waypoints per chunk
@@ -285,8 +286,8 @@ func _build_plane() -> void:
 	body.add_child(col)
 
 # ─── Railing walls — solid collision barriers along both track edges ──────────
-# One continuous wall mesh + ConcavePolygonShape3D per chunk per side.
-# No gaps — vertices are shared between adjacent segments forming a sealed strip.
+# Test track: dark walls with 5m lit sections every ~100m
+# Main track: fully lit walls (no pattern)
 func _build_railings() -> void:
 	var pts    := _hires_pts
 	var banks  := _hires_banks
@@ -297,12 +298,18 @@ func _build_railings() -> void:
 
 	var edge_dist := EDGE_OFFSET + 3.0
 	var rail_mat  := _neon_mat(Color(1.0, 0.5, 0.15), 30.0)
-	rail_mat.cull_mode = BaseMaterial3D.CULL_DISABLED  # Visible from both sides
+	rail_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var dark_rail_mat := _neon_mat(Color(0.1, 0.1, 0.1), 2.0)
+	dark_rail_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var post_mat  := _neon_mat(Color(0.9, 0.6, 0.2), 50.0)
 	var half_t    := RAILING_THICKNESS * 0.5
 
 	var wp_count     := waypoints.size()
 	var hires_per_wp := maxi(1, n / maxi(1, wp_count))
+
+	# Test track uses dark/lit pattern, main track is all lit
+	var use_pattern := GameManager.selected_track != 0
+	_lit_section_dist = 0.0  # Reset distance tracker
 
 	for side in [-1, 1]:
 		var sf := float(side)
@@ -321,7 +328,6 @@ func _build_railings() -> void:
 			var bh := tan(deg_to_rad(bank_deg)) * edge_dist
 			base_y[i]  = 0.02 - bh * sf
 			edge_pt[i] = pts[i] + ri * sf * edge_dist
-			# Thickness offset toward track centre
 			var to_ctr := pts[i] - edge_pt[i]
 			to_ctr.y = 0.0
 			var d := to_ctr.length()
@@ -332,10 +338,13 @@ func _build_railings() -> void:
 			inner_pt[i] = edge_pt[i] + to_ctr * half_t
 			outer_pt[i] = edge_pt[i] - to_ctr * half_t
 
-		# ── Build wall mesh + collision per chunk ────────────────────────
+		# ── Build wall mesh per chunk — segments alternate dark/lit on test track ─
 		var chunk_st:    Dictionary = {}   # cid → SurfaceTool
-		var chunk_faces: Dictionary = {}   # cid → Array[Vector3] (collision tris)
-		var chunk_sb:    Dictionary = {}   # cid → StaticBody3D
+		var chunk_st_dark: Dictionary = {}  # cid → SurfaceTool (dark sections)
+		var chunk_faces: Dictionary = {}
+		var chunk_faces_dark: Dictionary = {}
+		var chunk_sb:    Dictionary = {}
+		var lit_positions: Dictionary = {}  # cid → Array of lit section positions for lights
 
 		for i in n:
 			var ni := (i + 1) % n
@@ -344,23 +353,52 @@ func _build_railings() -> void:
 
 			var wp_idx := clampi(i / hires_per_wp, 0, wp_count - 1)
 			var cid    := clampi(wp_idx / CHUNK_SIZE, 0, _chunks.size() - 1)
+			var seg_dist := pts[ni].distance_to(pts[i])
 
-			if not chunk_st.has(cid):
-				var st := SurfaceTool.new()
-				st.begin(Mesh.PRIMITIVE_TRIANGLES)
-				chunk_st[cid]    = st
-				chunk_faces[cid] = []
-				var sb := StaticBody3D.new()
-				sb.collision_layer = RAILING_LAYER
-				sb.collision_mask  = 2
-				chunk_sb[cid] = sb
+			# Determine if this segment is lit or dark (test track only)
+			var is_lit := not use_pattern
+			var mid_pos := Vector3.ZERO
+			if use_pattern:
+				_lit_section_dist += seg_dist
+				if _lit_section_dist >= 100.0:
+					is_lit = true
+					_lit_section_dist -= 100.0
+					mid_pos = (edge_pt[i] + edge_pt[ni]) * 0.5 + Vector3(0, RAILING_HEIGHT * 0.5, 0)
 
-			var st: SurfaceTool = chunk_st[cid]
-			var faces: Array     = chunk_faces[cid]
+			# Use appropriate SurfaceTool based on lit/dark state
+			var st: SurfaceTool
+			var faces: Array
+			if is_lit:
+				if not chunk_st.has(cid):
+					var st_new := SurfaceTool.new()
+					st_new.begin(Mesh.PRIMITIVE_TRIANGLES)
+					chunk_st[cid] = st_new
+					chunk_faces[cid] = []
+					lit_positions[cid] = []
+					var sb := StaticBody3D.new()
+					sb.collision_layer = RAILING_LAYER
+					sb.collision_mask  = 2
+					chunk_sb[cid] = sb
+				st = chunk_st[cid]
+				faces = chunk_faces[cid]
+				if mid_pos != Vector3.ZERO:
+					lit_positions[cid].append(mid_pos)
+			else:
+				if not chunk_st_dark.has(cid):
+					var st_new := SurfaceTool.new()
+					st_new.begin(Mesh.PRIMITIVE_TRIANGLES)
+					chunk_st_dark[cid] = st_new
+					chunk_faces_dark[cid] = []
+					var sb := StaticBody3D.new()
+					sb.collision_layer = RAILING_LAYER
+					sb.collision_mask  = 2
+					chunk_sb[cid] = sb
+				st = chunk_st_dark[cid]
+				faces = chunk_faces_dark[cid]
+
 			var by_i: float = base_y[i]
 			var by_n: float = base_y[ni]
 
-			# 8 vertices — 4 at current point, 4 at next point
 			var ib  := inner_pt[i]  + Vector3(0, by_i, 0)
 			var it  := inner_pt[i]  + Vector3(0, by_i + RAILING_HEIGHT, 0)
 			var ob  := outer_pt[i]  + Vector3(0, by_i, 0)
@@ -370,40 +408,66 @@ func _build_railings() -> void:
 			var ob2 := outer_pt[ni] + Vector3(0, by_n, 0)
 			var ot2 := outer_pt[ni] + Vector3(0, by_n + RAILING_HEIGHT, 0)
 
-			# Inner face (toward track)
 			st.add_vertex(ib);  st.add_vertex(ib2); st.add_vertex(it2)
 			st.add_vertex(ib);  st.add_vertex(it2); st.add_vertex(it)
 			faces.append(ib);   faces.append(ib2);  faces.append(it2)
 			faces.append(ib);   faces.append(it2);  faces.append(it)
-			# Outer face (away from track)
 			st.add_vertex(ob);  st.add_vertex(ot);  st.add_vertex(ot2)
 			st.add_vertex(ob);  st.add_vertex(ot2); st.add_vertex(ob2)
 			faces.append(ob);   faces.append(ot);   faces.append(ot2)
 			faces.append(ob);   faces.append(ot2);  faces.append(ob2)
-			# Top cap
 			st.add_vertex(it);  st.add_vertex(it2); st.add_vertex(ot2)
 			st.add_vertex(it);  st.add_vertex(ot2); st.add_vertex(ot)
 			faces.append(it);   faces.append(it2);  faces.append(ot2)
 			faces.append(it);   faces.append(ot2);  faces.append(ot)
 
-		# ── Finalize: one MeshInstance3D + one ConcavePolygonShape3D per chunk
+		# ── Finalize: lit mesh + dark mesh + collision per chunk ──────────
 		for cid in chunk_st:
 			var chunk := _chunks[cid]
-			var st: SurfaceTool = chunk_st[cid]
-			st.generate_normals()
-			var mi := MeshInstance3D.new()
-			mi.mesh = st.commit()
-			mi.material_override = rail_mat
-			chunk.add_child(mi)
+			# Lit sections
+			var st_lit: SurfaceTool = chunk_st[cid]
+			st_lit.generate_normals()
+			var mi_lit := MeshInstance3D.new()
+			mi_lit.mesh = st_lit.commit()
+			mi_lit.material_override = rail_mat
+			chunk.add_child(mi_lit)
 
+			# Dark sections
+			if chunk_st_dark.has(cid):
+				var st_dark: SurfaceTool = chunk_st_dark[cid]
+				st_dark.generate_normals()
+				var mi_dark := MeshInstance3D.new()
+				mi_dark.mesh = st_dark.commit()
+				mi_dark.material_override = dark_rail_mat
+				chunk.add_child(mi_dark)
+
+			# Combined collision
+			var all_faces: Array = chunk_faces[cid]
+			if chunk_faces_dark.has(cid):
+				all_faces.append_array(chunk_faces_dark[cid])
 			var concave := ConcavePolygonShape3D.new()
-			concave.set_faces(PackedVector3Array(chunk_faces[cid]))
+			concave.set_faces(PackedVector3Array(all_faces))
 			concave.backface_collision = true
 			var col := CollisionShape3D.new()
 			col.shape = concave
 			var sb: StaticBody3D = chunk_sb[cid]
 			sb.add_child(col)
 			chunk.add_child(sb)
+
+			# Add lights at lit sections
+			if lit_positions.has(cid):
+				for light_pos in lit_positions[cid]:
+					var barrier_light := OmniLight3D.new()
+					barrier_light.light_color = Color(1.0, 0.5, 0.15)
+					barrier_light.light_energy = 375.0
+					barrier_light.omni_range = 200.0
+					barrier_light.omni_attenuation = 1.0
+					barrier_light.shadow_enabled = false
+					barrier_light.distance_fade_enabled = true
+					barrier_light.distance_fade_begin = 4800.0
+					barrier_light.distance_fade_length = 400.0
+					barrier_light.position = light_pos
+					chunk.add_child(barrier_light)
 
 	# ── Post accents — decorative boxes every ~40m ───────────────────────────
 	for i in n:
